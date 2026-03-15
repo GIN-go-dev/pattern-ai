@@ -112,6 +112,23 @@
             .pattern-area { min-height: 400px; overflow-x: auto; }
             .panel { padding: 15px; }
         }
+        /* Validation */
+        .val-section { margin-bottom: 16px; }
+        .val-section h3 { color: #b8ff00; font-size: 0.9em; margin-bottom: 8px; }
+        .val-item { display: flex; gap: 8px; align-items: flex-start; padding: 7px 10px; border-radius: 6px; margin-bottom: 6px; font-size: 0.84em; line-height: 1.4; }
+        .val-item.error { background: #3d1a1a; border-left: 3px solid #ff4a4a; color: #ffaaaa; }
+        .val-item.warning { background: #3d2e00; border-left: 3px solid #ffaa00; color: #ffdd88; }
+        .val-item.ok { background: #1a3a1a; border-left: 3px solid #66ff66; color: #aaffaa; }
+        .val-icon { font-size: 1em; flex-shrink: 0; margin-top: 1px; }
+        .val-score { display: flex; align-items: center; gap: 12px; padding: 12px; background: #0f3460; border-radius: 8px; margin-bottom: 14px; }
+        .val-score-num { font-size: 2.2em; font-weight: bold; min-width: 52px; text-align: center; }
+        .val-score-bar { flex: 1; height: 8px; background: #1a1a2e; border-radius: 4px; overflow: hidden; }
+        .val-score-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+        .val-verdict { background: #0f3460; border-radius: 8px; padding: 10px 12px; font-size: 0.86em; color: #ccc; line-height: 1.5; margin-bottom: 14px; font-style: italic; }
+        .val-correction { background: #162840; border-radius: 6px; padding: 7px 10px; margin-bottom: 5px; font-size: 0.82em; }
+        .val-correction .field { color: #4a9eff; font-weight: bold; }
+        .val-correction .arrow { color: #b8ff00; margin: 0 5px; }
+        .lessons-info { background: #1a1a2e; border-radius: 6px; padding: 8px 12px; font-size: 0.78em; color: #666; margin-top: 10px; }
         @media print {
             body { background: white; color: black; }
             .panel { border: 1px solid #ccc; background: white; }
@@ -227,6 +244,7 @@
                         <div class="tab" onclick="switchAiTab('layout')">Раскладка</div>
                         <div class="tab" onclick="switchAiTab('instructions')">Пошив</div>
                         <div class="tab" onclick="switchAiTab('materials')">Материалы</div>
+                        <div class="tab" onclick="switchAiTab('validate')" id="tabValidate">Проверка</div>
                     </div>
                     <div id="aiResultArea">
                         <svg id="aiSVG" viewBox="0 0 800 700" xmlns="http://www.w3.org/2000/svg">
@@ -235,10 +253,14 @@
                     </div>
                     <div id="aiInstructionsArea" style="display:none"></div>
                     <div id="aiMaterialsArea" style="display:none"></div>
+                    <div id="aiValidationArea" style="display:none"></div>
                 </div>
 
                 <div class="panel" style="margin-top:12px" id="aiSummaryPanel">
-                    <h2 id="aiGarmentTitle">Результат анализа</h2>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;padding-bottom:8px;border-bottom:1px solid #2a2a4a">
+                        <h2 id="aiGarmentTitle" style="margin:0;padding:0;border:none">Результат анализа</h2>
+                        <div id="confidenceBadge" style="display:none;padding:4px 12px;border-radius:20px;font-size:0.82em;font-weight:bold"></div>
+                    </div>
                     <div class="measurements-summary" id="aiCutSummary">
                         <div class="row"><span>Ожидание анализа...</span></div>
                     </div>
@@ -578,7 +600,7 @@ function buildPrompt(m, description) {
     var garmentInfo = description
         ? 'GARMENT DESCRIPTION (no photo):\n' + description + '\n\n'
         : 'Analyze the provided clothing photo and generate a complete sewing pattern.\n\n';
-    return 'You are an expert pattern maker and garment construction specialist.\n\n' +
+    return 'You are an expert pattern maker and garment construction specialist.' + buildLessonContext() + '\n\n' +
     garmentInfo +
     'USER MEASUREMENTS (cm):\n' +
     '- Bust: ' + m.bust + '\n- Waist: ' + m.waist + '\n- Hips: ' + m.hips + '\n' +
@@ -657,12 +679,13 @@ function hideAiError() { el('aiError').style.display = 'none'; }
 function switchAiTab(tab) {
     aiCurrentTab = tab;
     var tabs = el('aiTabs').children;
-    var tabNames = ['pieces', 'layout', 'instructions', 'materials'];
+    var tabNames = ['pieces', 'layout', 'instructions', 'materials', 'validate'];
     for (var i = 0; i < tabs.length; i++) tabs[i].className = 'tab' + (tabNames[i] === tab ? ' active' : '');
 
     el('aiResultArea').style.display = (tab === 'pieces' || tab === 'layout') ? 'block' : 'none';
     el('aiInstructionsArea').style.display = tab === 'instructions' ? 'block' : 'none';
     el('aiMaterialsArea').style.display = tab === 'materials' ? 'block' : 'none';
+    el('aiValidationArea').style.display = tab === 'validate' ? 'block' : 'none';
 
     if (aiResult) renderAiResult();
 }
@@ -677,7 +700,17 @@ function renderAiResult() {
         case 'layout': drawAiLayout(); break;
         case 'instructions': renderAiInstructions(); break;
         case 'materials': renderAiMaterials(); break;
+        case 'validate': renderValidationTab(); break;
     }
+
+    // Auto-run local validator on fresh result
+    var localResult = validatePattern(aiResult, getAiMeasurements());
+    updateConfidenceBadge(localResult.score);
+    // Highlight validate tab if issues found
+    var tv = el('tabValidate');
+    if (localResult.issues.length > 0) tv.style.color = '#ff6b6b';
+    else if (localResult.warnings.length > 0) tv.style.color = '#ffaa00';
+    else tv.style.color = '';
 }
 
 function drawAiPieces() {
@@ -887,6 +920,223 @@ function updateAiSummary() {
         html += '<div class="row" style="border-top:1px solid #1a1a2e;padding-top:5px;margin-top:5px"><span style="color:#aaa;font-size:0.9em">' + aiResult.description + '</span></div>';
     }
     el('aiCutSummary').innerHTML = html;
+}
+
+/* ==================== PHASE 1: VALIDATION & SEAMSTRESS AGENT ==================== */
+
+// ---- Local mathematical validator ----
+function validatePattern(result, m) {
+    var issues = [], warnings = [];
+    var pieces = result.pieces || [];
+    var bust = parseFloat(m.bust), waist = parseFloat(m.waist), hips = parseFloat(m.hips);
+    var length = parseFloat(m.length), torso = parseFloat(m.torso);
+
+    if (!pieces.length) { issues.push('Нет деталей кроя'); return { issues: issues, warnings: warnings, score: 0 }; }
+
+    // Check piece dimensions
+    pieces.forEach(function(p) {
+        var w = p.width || 0, h = p.height || 0;
+        if (w <= 0 || h <= 0) { issues.push('Деталь "' + (p.name||p.id) + '": нулевые размеры'); return; }
+        if (w > 250) warnings.push('Деталь "' + (p.name||p.id) + '": ширина ' + w + ' см — необычно большая');
+        if (h > 400) warnings.push('Деталь "' + (p.name||p.id) + '": высота ' + h + ' см — необычно большая');
+        if (w < 3)   warnings.push('Деталь "' + (p.name||p.id) + '": ширина ' + w + ' см — очень маленькая');
+    });
+
+    // Check total width of torso pieces vs bust/hips
+    var torsoPieces = pieces.filter(function(p) { var n = (p.name||'').toLowerCase(); return n.indexOf('полочк') > -1 || n.indexOf('спинк') > -1 || n.indexOf('перед') > -1 || n.indexOf('задн') > -1; });
+    if (torsoPieces.length >= 2) {
+        var totalW = torsoPieces.reduce(function(s, p) { return s + (p.width || 0) * (p.cutOnFold ? 2 : 1) * (p.quantity || 1); }, 0);
+        if (totalW > 0 && totalW < bust * 0.8) warnings.push('Суммарная ширина деталей лифа (' + totalW.toFixed(0) + ' см) меньше обхвата груди (' + bust + ' см)');
+        if (totalW > bust * 1.8) warnings.push('Суммарная ширина деталей лифа (' + totalW.toFixed(0) + ' см) подозрительно велика');
+    }
+
+    // Check length of longest piece vs garment length
+    var maxH = pieces.reduce(function(mx, p) { return Math.max(mx, p.height || 0); }, 0);
+    if (length > 30 && maxH < length * 0.5) warnings.push('Самая длинная деталь (' + maxH.toFixed(0) + ' см) значительно короче длины изделия (' + length + ' см)');
+
+    // Check fabric
+    var fabric = result.fabric || {};
+    if (fabric.lengthCm && fabric.lengthCm < 30) issues.push('Расход ткани нереально мал: ' + fabric.lengthCm + ' см');
+    if (fabric.lengthCm && fabric.lengthCm > 3000) warnings.push('Расход ткани очень большой: ' + (fabric.lengthCm/100).toFixed(1) + ' м');
+
+    // Check instructions
+    var inst = result.instructions || [];
+    if (inst.length < 3) warnings.push('Мало инструкций по пошиву (' + inst.length + ' шагов)');
+
+    var score = Math.max(0, Math.min(100, 100 - issues.length * 25 - warnings.length * 8));
+    return { issues: issues, warnings: warnings, score: score };
+}
+
+function updateConfidenceBadge(score) {
+    var b = el('confidenceBadge');
+    b.style.display = 'block';
+    b.textContent = 'Точность ~' + score + '%';
+    if (score >= 80) { b.style.background = 'rgba(100,255,100,0.15)'; b.style.color = '#66ff88'; b.style.border = '1px solid #44aa44'; }
+    else if (score >= 55) { b.style.background = 'rgba(255,170,0,0.15)'; b.style.color = '#ffcc44'; b.style.border = '1px solid #aa7700'; }
+    else { b.style.background = 'rgba(255,70,70,0.15)'; b.style.color = '#ff8888'; b.style.border = '1px solid #aa3333'; }
+}
+
+// ---- Render validation tab ----
+function renderValidationTab() {
+    var m = getAiMeasurements();
+    var localResult = validatePattern(aiResult, m);
+    var html = '';
+
+    // Score
+    var sc = localResult.score;
+    var scColor = sc >= 80 ? '#66ff88' : sc >= 55 ? '#ffcc44' : '#ff6b6b';
+    html += '<div class="val-score">';
+    html += '<div class="val-score-num" style="color:' + scColor + '">' + sc + '</div>';
+    html += '<div style="flex:1"><div style="font-size:0.8em;color:#aaa;margin-bottom:5px">Оценка точности (локальная проверка)</div>';
+    html += '<div class="val-score-bar"><div class="val-score-fill" style="width:' + sc + '%;background:' + scColor + '"></div></div></div>';
+    html += '</div>';
+
+    // Issues
+    if (localResult.issues.length) {
+        html += '<div class="val-section"><h3>Ошибки (' + localResult.issues.length + ')</h3>';
+        localResult.issues.forEach(function(i) { html += '<div class="val-item error"><span class="val-icon">✗</span><span>' + i + '</span></div>'; });
+        html += '</div>';
+    }
+    if (localResult.warnings.length) {
+        html += '<div class="val-section"><h3>Предупреждения (' + localResult.warnings.length + ')</h3>';
+        localResult.warnings.forEach(function(w) { html += '<div class="val-item warning"><span class="val-icon">⚠</span><span>' + w + '</span></div>'; });
+        html += '</div>';
+    }
+    if (!localResult.issues.length && !localResult.warnings.length) {
+        html += '<div class="val-item ok"><span class="val-icon">✓</span><span>Локальная проверка пройдена — размеры в норме</span></div>';
+    }
+
+    // Seamstress agent block
+    html += '<div class="val-section" style="margin-top:16px"><h3>Агент-швея (AI проверка)</h3>';
+    var sr = el('aiValidationArea').seamstressResult;
+    if (sr) {
+        var sc2 = sr.confidence || 0;
+        var c2 = sc2 >= 75 ? '#66ff88' : sc2 >= 50 ? '#ffcc44' : '#ff6b6b';
+        html += '<div class="val-score"><div class="val-score-num" style="color:' + c2 + '">' + sc2 + '</div>';
+        html += '<div style="flex:1"><div style="font-size:0.8em;color:#aaa;margin-bottom:5px">Уверенность швеи</div>';
+        html += '<div class="val-score-bar"><div class="val-score-fill" style="width:' + sc2 + '%;background:' + c2 + '"></div></div></div></div>';
+        if (sr.verdict) html += '<div class="val-verdict">"' + sr.verdict + '"</div>';
+        var si = sr.issues || [];
+        if (si.length) {
+            html += '<h3 style="color:#b8ff00;font-size:0.9em;margin-bottom:8px">Замечания швеи (' + si.length + ')</h3>';
+            si.forEach(function(i) {
+                var cls = i.severity === 'error' ? 'error' : 'warning';
+                var ico = i.severity === 'error' ? '✗' : '⚠';
+                var piece = i.piece ? '<strong>' + i.piece + ':</strong> ' : '';
+                html += '<div class="val-item ' + cls + '"><span class="val-icon">' + ico + '</span><span>' + piece + (i.description||i.text||'') + '</span></div>';
+            });
+        }
+        var corr = sr.corrections || [];
+        if (corr.length) {
+            html += '<h3 style="color:#b8ff00;font-size:0.9em;margin:12px 0 8px">Рекомендуемые поправки (' + corr.length + ')</h3>';
+            corr.forEach(function(c) {
+                html += '<div class="val-correction"><span class="field">' + (c.piece||'') + ' → ' + (c.field||'') + ':</span> ';
+                html += (c.from||c.currentValue||'?') + '<span class="arrow">→</span>' + (c.to||c.suggestedValue||'?') + ' см';
+                if (c.reason) html += ' <span style="color:#888">(' + c.reason + ')</span>';
+                html += '</div>';
+            });
+        }
+        // Lessons saved info
+        var lessons = JSON.parse(localStorage.getItem('patternLessons') || '[]');
+        html += '<div class="lessons-info">База знаний: ' + lessons.length + ' урок(ов) накоплено. Используются в следующих запросах.</div>';
+    } else {
+        html += '<div style="color:#888;font-size:0.86em;margin-bottom:10px">Детальная проверка конструкции на ошибки, несоответствия размеров и рекомендации по исправлению.</div>';
+        html += '<button class="primary" id="btnSeamstress" onclick="runSeamstressAgent()" style="margin-top:0">Проверить у швеи</button>';
+        html += '<div class="error-box" id="seamstressError" style="display:none"></div>';
+    }
+    html += '</div>';
+
+    el('aiValidationArea').innerHTML = html;
+}
+
+// ---- Seamstress AI agent ----
+var seamstressRunning = false;
+function runSeamstressAgent() {
+    if (seamstressRunning || !aiResult) return;
+    var cfg = providerCfg[currentProvider];
+    var apiKey = localStorage.getItem(cfg.key);
+    if (!apiKey) { el('seamstressError').textContent = 'Нужен API-ключ для AI проверки'; el('seamstressError').style.display = 'block'; return; }
+
+    seamstressRunning = true;
+    el('btnSeamstress').disabled = true;
+    el('btnSeamstress').textContent = 'Швея работает...';
+    el('seamstressError').style.display = 'none';
+
+    var m = getAiMeasurements();
+    var prompt = buildSeamstressPrompt(aiResult, m);
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 90000);
+    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+
+    callFn(apiKey, prompt, null, controller.signal)
+    .then(function(text) {
+        var report = parseSeamstressJSON(text);
+        el('aiValidationArea').seamstressResult = report;
+        saveLessonToMemory(aiResult.garmentType, report);
+        renderValidationTab();
+    })
+    .catch(function(err) {
+        var errEl = el('seamstressError');
+        if (errEl) { errEl.textContent = err.name === 'AbortError' ? 'Таймаут' : err.message; errEl.style.display = 'block'; }
+        if (el('btnSeamstress')) { el('btnSeamstress').disabled = false; el('btnSeamstress').textContent = 'Проверить у швеи'; }
+    })
+    .finally(function() { clearTimeout(timeout); seamstressRunning = false; });
+}
+
+function buildSeamstressPrompt(result, m) {
+    var lessons = getRelevantLessons(result.garmentType);
+    var lessonStr = lessons.length ? '\n\nPAST ISSUES TO WATCH (from memory):\n' + JSON.stringify(lessons) : '';
+    return 'You are an expert seamstress with 20 years of professional experience.' + lessonStr + '\n\n' +
+    'Review this sewing pattern and identify ALL issues that would cause problems during sewing.\n\n' +
+    'PATTERN JSON:\n' + JSON.stringify({ garmentType: result.garmentType, pieces: result.pieces, fabric: result.fabric }, null, 1) + '\n\n' +
+    'MEASUREMENTS: bust=' + m.bust + ' waist=' + m.waist + ' hips=' + m.hips + ' shoulder=' + m.shoulder + ' torso=' + m.torso + ' length=' + m.length + ' cm\n\n' +
+    'Respond with ONLY valid JSON:\n' +
+    '{"confidence":0-100,"verdict":"string(Russian,2 sentences)","issues":[{"severity":"error|warning","piece":"string","description":"string(Russian)"}],"corrections":[{"piece":"string","field":"string","from":number,"to":number,"reason":"string(Russian)"}]}';
+}
+
+function parseSeamstressJSON(text) {
+    var clean = text.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
+    var m = clean.match(/\{[\s\S]*\}/);
+    if (!m) return { confidence: 0, verdict: 'Не удалось разобрать ответ швеи', issues: [], corrections: [] };
+    try { return JSON.parse(m[0]); }
+    catch(e) {
+        try { return JSON.parse(m[0].replace(/,\s*([}\]])/g,'$1')); }
+        catch(e2) { return { confidence: 0, verdict: 'Ошибка парсинга ответа', issues: [], corrections: [] }; }
+    }
+}
+
+// ---- Few-shot learning memory ----
+function saveLessonToMemory(garmentType, report) {
+    if (!report || (!report.issues.length && !report.corrections.length)) return;
+    var lessons = JSON.parse(localStorage.getItem('patternLessons') || '[]');
+    lessons.push({
+        date: new Date().toISOString().split('T')[0],
+        garmentType: garmentType || 'unknown',
+        confidence: report.confidence,
+        issues: (report.issues || []).slice(0, 3).map(function(i) { return { sev: i.severity, desc: i.description }; }),
+        corrections: (report.corrections || []).slice(0, 3).map(function(c) { return { piece: c.piece, field: c.field, from: c.from, to: c.to }; })
+    });
+    if (lessons.length > 30) lessons = lessons.slice(-30);
+    localStorage.setItem('patternLessons', JSON.stringify(lessons));
+}
+
+function getRelevantLessons(garmentType) {
+    var lessons = JSON.parse(localStorage.getItem('patternLessons') || '[]');
+    // Same garment type first, then recent
+    var same = lessons.filter(function(l) { return l.garmentType === garmentType; }).slice(-2);
+    var recent = lessons.slice(-2);
+    var combined = same.concat(recent).filter(function(l, i, arr) { return arr.indexOf(l) === i; });
+    return combined.slice(0, 3);
+}
+
+function buildLessonContext() {
+    var lessons = JSON.parse(localStorage.getItem('patternLessons') || '[]');
+    if (!lessons.length) return '';
+    var recent = lessons.slice(-3);
+    return '\n\nLEARNED LESSONS (avoid repeating these errors):\n' +
+        recent.map(function(l) {
+            return '- ' + l.garmentType + ': ' + (l.issues||[]).map(function(i){ return i.desc; }).join('; ');
+        }).join('\n');
 }
 
 
