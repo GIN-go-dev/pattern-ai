@@ -65,6 +65,11 @@
         .upload-zone .text { color: #888; font-size: 0.9em; }
         .upload-zone .text strong { color: #b8ff00; }
         .upload-zone img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 10px; }
+        .thumb-item { position: relative; width: 72px; height: 72px; border-radius: 6px; overflow: hidden; border: 2px solid #2a2a4a; cursor: pointer; flex-shrink: 0; }
+        .thumb-item img { width: 100%; height: 100%; object-fit: cover; }
+        .thumb-item .thumb-del { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.7); color: #fff; border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .thumb-item.pdf-thumb { background: #1a2a3a; display: flex; align-items: center; justify-content: center; font-size: 0.7em; color: #4a9eff; text-align: center; padding: 4px; }
+        .thumb-item.active-thumb { border-color: #b8ff00; }
         .upload-zone input[type="file"] { display: none; }
 
         /* API key */
@@ -164,7 +169,8 @@
                     <div class="input-group">
                         <label>AI-провайдер</label>
                         <select id="aiProvider" onchange="onProviderChange()">
-                            <option value="gemini">Google Gemini — бесплатно</option>
+                            <option value="gemini">Google Gemini — бесплатно ✦</option>
+                            <option value="claude">Claude (Anthropic) — с фото</option>
                             <option value="deepseek">DeepSeek — дёшево (без фото)</option>
                             <option value="grok">Grok / xAI — с фото</option>
                         </select>
@@ -197,15 +203,18 @@
                 <!-- Photo upload -->
                 <div class="panel" style="margin-top:12px" id="uploadPanel">
                     <h2>Фото одежды</h2>
-                    <div class="upload-zone" id="uploadZone" onclick="if(!uploadedImageData) document.getElementById('photoInput').click()">
+                    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('photoInput').click()">
                         <div id="uploadPlaceholder">
                             <div class="icon">&#128247;</div>
-                            <div class="text">Перетащите фото сюда<br>или <strong>нажмите для выбора</strong><br><span style="font-size:0.85em;color:#666">iPad: откроется камера</span></div>
+                            <div class="text">Фото / PDF — несколько файлов<br>или <strong>нажмите для выбора</strong><br><span style="font-size:0.8em;color:#666">JPG, PNG, WEBP, PDF · до 20 МБ</span></div>
                         </div>
-                        <img id="photoPreview" style="display:none">
-                        <input type="file" id="photoInput" accept="image/*" capture="environment">
+                        <input type="file" id="photoInput" accept="image/*,.pdf" multiple>
                     </div>
-                    <button class="secondary" id="btnClearPhoto" style="display:none" onclick="clearPhoto()">Заменить фото</button>
+                    <div id="thumbStrip" style="display:none;display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"></div>
+                    <div style="display:flex;gap:8px;margin-top:8px">
+                        <button class="secondary" id="btnAddPhoto" style="display:none;flex:1" onclick="document.getElementById('photoInput').click()">+ Добавить фото</button>
+                        <button class="secondary" id="btnClearPhoto" style="display:none;flex:1" onclick="clearPhotos()">✕ Очистить всё</button>
+                    </div>
                 </div>
 
                 <!-- Description for non-vision providers -->
@@ -379,15 +388,18 @@ function switchMode(mode) {
 /* ==================== AI MODE ==================== */
 var aiResult = null;
 var aiCurrentTab = 'pieces';
-var uploadedImageData = null;
-var uploadedImageType = 'image/jpeg';
+var uploadedImages = []; // [{data: base64, type: 'image/jpeg'|'application/pdf', name: str}]
 var currentProvider = 'gemini';
 
 var providerCfg = {
-    gemini:   { name: 'Google Gemini', placeholder: 'AIzaSy...',  hint: 'aistudio.google.com/apikey (бесплатно)', key: 'patternGeminiKey',   vision: true  },
+    gemini:   { name: 'Google Gemini', placeholder: 'AIzaSy...',  hint: 'aistudio.google.com/apikey',            key: 'patternGeminiKey',   vision: true  },
+    claude:   { name: 'Claude (Anthropic)', placeholder: 'sk-ant-...', hint: 'console.anthropic.com/settings/keys', key: 'patternClaudeKey', vision: true  },
     deepseek: { name: 'DeepSeek',      placeholder: 'sk-...',     hint: 'platform.deepseek.com/api_keys',        key: 'patternDeepseekKey', vision: false },
     grok:     { name: 'Grok / xAI',    placeholder: 'xai-...',    hint: 'console.x.ai',                          key: 'patternGrokKey',     vision: true  }
 };
+
+// backward compat shim
+Object.defineProperty(window, 'uploadedImageData', { get: function(){ return uploadedImages.length ? uploadedImages[0].data : null; } });
 
 function onProviderChange() {
     currentProvider = el('aiProvider').value;
@@ -414,46 +426,76 @@ function saveApiKey() {
 }
 function loadApiKey() { onProviderChange(); }
 
-// Photo upload
+// Photo upload (multi-file)
 function setupUpload() {
     var zone = el('uploadZone');
     var input = el('photoInput');
-
     zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
     zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
     zone.addEventListener('drop', function(e) {
         e.preventDefault(); zone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        handleFiles(Array.from(e.dataTransfer.files));
     });
-    input.addEventListener('change', function() { if (input.files.length) handleFile(input.files[0]); });
+    input.addEventListener('change', function() { if (input.files.length) handleFiles(Array.from(input.files)); input.value = ''; });
 }
 
-function handleFile(file) {
-    if (!file.type.startsWith('image/')) { showAiError('Выберите изображение (JPG, PNG)'); return; }
-    if (file.size > 20 * 1024 * 1024) { showAiError('Файл слишком большой (макс. 20 МБ)'); return; }
-    uploadedImageType = file.type;
-    var reader = new FileReader();
-    reader.onload = function(e) {
-        resizeImage(e.target.result, 1568, function(resized) {
-            uploadedImageData = resized.split(',')[1];
-            el('photoPreview').src = resized;
-            el('photoPreview').style.display = 'block';
-            el('uploadPlaceholder').style.display = 'none';
-            el('btnClearPhoto').style.display = 'block';
-            hideAiError();
-        });
-    };
-    reader.readAsDataURL(file);
+function handleFiles(files) {
+    files.forEach(function(file) {
+        if (file.size > 20 * 1024 * 1024) { showAiError('Файл ' + file.name + ' > 20 МБ'); return; }
+        if (file.type === 'application/pdf') {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                var base64 = e.target.result.split(',')[1];
+                uploadedImages.push({ data: base64, type: 'application/pdf', name: file.name });
+                renderThumbs();
+            };
+            reader.readAsDataURL(file);
+        } else if (file.type.startsWith('image/')) {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                resizeImage(e.target.result, 1568, function(resized) {
+                    uploadedImages.push({ data: resized.split(',')[1], type: 'image/jpeg', name: file.name });
+                    renderThumbs();
+                });
+            };
+            reader.readAsDataURL(file);
+        } else {
+            showAiError('Неподдерживаемый формат: ' + file.name);
+        }
+    });
+    hideAiError();
 }
 
-function clearPhoto() {
-    uploadedImageData = null;
-    el('photoPreview').style.display = 'none';
-    el('photoPreview').src = '';
-    el('uploadPlaceholder').style.display = 'flex';
-    el('btnClearPhoto').style.display = 'none';
+function renderThumbs() {
+    var strip = el('thumbStrip');
+    if (!uploadedImages.length) {
+        strip.style.display = 'none';
+        el('uploadPlaceholder').style.display = 'flex';
+        el('btnClearPhoto').style.display = 'none';
+        el('btnAddPhoto').style.display = 'none';
+        return;
+    }
+    el('uploadPlaceholder').style.display = 'none';
+    strip.style.display = 'flex';
+    el('btnClearPhoto').style.display = 'block';
+    el('btnAddPhoto').style.display = 'block';
+    strip.innerHTML = uploadedImages.map(function(img, i) {
+        if (img.type === 'application/pdf') {
+            return '<div class="thumb-item pdf-thumb" title="' + img.name + '">📄<br>' + img.name.slice(0,8) + '<button class="thumb-del" onclick="removeThumb(' + i + ')">×</button></div>';
+        }
+        return '<div class="thumb-item' + (i===0?' active-thumb':'') + '" title="' + img.name + '"><img src="data:image/jpeg;base64,' + img.data + '"><button class="thumb-del" onclick="removeThumb(' + i + ')">×</button></div>';
+    }).join('');
+}
+
+function removeThumb(idx) {
+    uploadedImages.splice(idx, 1);
+    renderThumbs();
+}
+
+function clearPhotos() {
+    uploadedImages = [];
+    renderThumbs();
     el('photoInput').value = '';
-    document.getElementById('photoInput').click();
 }
 
 function resizeImage(dataURL, maxDim, callback) {
@@ -503,7 +545,7 @@ function analyzeAndGenerate() {
     var cfg = providerCfg[currentProvider];
     var apiKey = localStorage.getItem(cfg.key);
     if (!apiKey) { showAiError('Введите и сохраните API-ключ (' + cfg.hint + ')'); return; }
-    if (cfg.vision && !uploadedImageData) { showAiError('Загрузите фото одежды'); return; }
+    if (cfg.vision && !uploadedImages.length) { showAiError('Загрузите фото одежды'); return; }
     if (!cfg.vision && !el('garmentDescription').value.trim()) { showAiError('Опишите изделие в поле выше'); return; }
 
     hideAiError();
@@ -517,8 +559,8 @@ function analyzeAndGenerate() {
     var controller = new AbortController();
     var timeout = setTimeout(function() { controller.abort(); }, 120000);
 
-    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
-    callFn(apiKey, prompt, uploadedImageData, controller.signal)
+    var callFn = { gemini: callGemini, claude: callClaude, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+    callFn(apiKey, prompt, uploadedImages, controller.signal)
     .then(function(text) {
         el('loadingText').textContent = 'Строим выкройку...';
         aiResult = parseAiJSON(text);
@@ -544,9 +586,11 @@ function analyzeAndGenerate() {
     });
 }
 
-function callGemini(apiKey, prompt, imageData, signal) {
+function callGemini(apiKey, prompt, images, signal) {
     var parts = [{ text: prompt }];
-    if (imageData) parts.push({ inlineData: { mimeType: uploadedImageType || 'image/jpeg', data: imageData } });
+    (images || []).forEach(function(img) {
+        parts.push({ inlineData: { mimeType: img.type, data: img.data } });
+    });
     var body = { contents: [{ parts: parts }], generationConfig: { maxOutputTokens: 8192, temperature: 0.3 } };
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=' + encodeURIComponent(apiKey);
     return fetch(url, { method: 'POST', signal: signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -572,7 +616,34 @@ function callGemini(apiKey, prompt, imageData, signal) {
     });
 }
 
-function callDeepSeek(apiKey, prompt, imageData, signal) {
+function callClaude(apiKey, prompt, images, signal) {
+    var content = [];
+    (images || []).filter(function(img) { return img.type !== 'application/pdf'; }).forEach(function(img) {
+        content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: img.data } });
+    });
+    content.push({ type: 'text', text: prompt });
+    var body = { model: 'claude-opus-4-6', max_tokens: 8192, messages: [{ role: 'user', content: content }] };
+    return fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: signal,
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify(body)
+    })
+    .then(function(r) {
+        if (!r.ok) return r.json().then(function(e) {
+            var msg = (e.error && e.error.message) ? e.error.message : 'HTTP ' + r.status;
+            if (r.status === 401) msg = 'Неверный API-ключ Claude. Проверьте на console.anthropic.com';
+            if (r.status === 529) msg = 'Claude перегружен. Попробуйте через минуту';
+            throw new Error(msg);
+        });
+        return r.json();
+    })
+    .then(function(data) {
+        if (!data.content || !data.content[0]) throw new Error('Пустой ответ от Claude');
+        return data.content[0].text;
+    });
+}
+
+function callDeepSeek(apiKey, prompt, images, signal) {
     var body = { model: 'deepseek-chat', messages: [{ role: 'user', content: prompt }], max_tokens: 8192, temperature: 0.3 };
     return fetch('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST', signal: signal,
@@ -594,10 +665,13 @@ function callDeepSeek(apiKey, prompt, imageData, signal) {
     });
 }
 
-function callGrok(apiKey, prompt, imageData, signal) {
+function callGrok(apiKey, prompt, images, signal) {
+    var hasImg = images && images.length;
     var content = [{ type: 'text', text: prompt }];
-    if (imageData) content.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + imageData } });
-    var model = imageData ? 'grok-2-vision-1212' : 'grok-3';
+    (images || []).filter(function(i){ return i.type !== 'application/pdf'; }).forEach(function(img) {
+        content.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + img.data } });
+    });
+    var model = hasImg ? 'grok-2-vision-1212' : 'grok-3';
     var body = { model: model, messages: [{ role: 'user', content: content }], max_tokens: 8192, temperature: 0.3 };
     return fetch('https://api.x.ai/v1/chat/completions', {
         method: 'POST', signal: signal,
@@ -1108,7 +1182,7 @@ function runSeamstressAgent() {
     var prompt = buildSeamstressPrompt(aiResult, m);
     var controller = new AbortController();
     var timeout = setTimeout(function() { controller.abort(); }, 90000);
-    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+    var callFn = { gemini: callGemini, claude: callClaude, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
 
     callFn(apiKey, prompt, null, controller.signal)
     .then(function(text) {
@@ -1351,7 +1425,7 @@ function runAiResearch(garmentType, libInfo) {
         '"criticalPoints":["string(RU)"],' +
         '"easeRecommendations":{"bust":"string","waist":"string","hips":"string"},' +
         '"fabricNotes":"string(RU)"}';
-    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+    var callFn = { gemini: callGemini, claude: callClaude, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
     return callFn(apiKey, prompt, null, new AbortController().signal)
     .then(function(text) {
         var clean = text.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
@@ -1439,9 +1513,9 @@ function refineWithResearch() {
     var refinePrompt = buildRefinePrompt(m, seamReport);
     var controller = new AbortController();
     var timeout = setTimeout(function() { controller.abort(); }, 120000);
-    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+    var callFn = { gemini: callGemini, claude: callClaude, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
 
-    callFn(apiKey, refinePrompt, uploadedImageData, controller.signal)
+    callFn(apiKey, refinePrompt, uploadedImages, controller.signal)
     .then(function(text) {
         aiResult = parseAiJSON(text);
         el('aiValidationArea').seamstressResult = null;
