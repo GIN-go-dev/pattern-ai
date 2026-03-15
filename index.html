@@ -135,19 +135,28 @@
             <div>
                 <!-- API Key -->
                 <div class="panel">
-                    <h2>Настройки API</h2>
+                    <h2>Настройки AI</h2>
                     <div class="input-group">
-                        <label>Google Gemini API Key</label>
+                        <label>AI-провайдер</label>
+                        <select id="aiProvider" onchange="onProviderChange()">
+                            <option value="gemini">Google Gemini — бесплатно</option>
+                            <option value="deepseek">DeepSeek — дёшево (без фото)</option>
+                            <option value="grok">Grok / xAI — с фото</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label id="apiKeyLabel">Google Gemini API Key</label>
                         <div class="api-key-row">
                             <input type="password" id="aiApiKey" placeholder="AIzaSy...">
                             <button onclick="saveApiKey()">Сохранить</button>
                         </div>
                         <div class="api-status" id="aiApiStatus"></div>
+                        <div id="apiKeyHint" style="font-size:0.78em;color:#666;margin-top:3px">aistudio.google.com/apikey</div>
                     </div>
                 </div>
 
                 <!-- Photo upload -->
-                <div class="panel" style="margin-top:12px">
+                <div class="panel" style="margin-top:12px" id="uploadPanel">
                     <h2>Фото одежды</h2>
                     <div class="upload-zone" id="uploadZone" onclick="if(!uploadedImageData) document.getElementById('photoInput').click()">
                         <div id="uploadPlaceholder">
@@ -158,6 +167,15 @@
                         <input type="file" id="photoInput" accept="image/*" capture="environment">
                     </div>
                     <button class="secondary" id="btnClearPhoto" style="display:none" onclick="clearPhoto()">Заменить фото</button>
+                </div>
+
+                <!-- Description for non-vision providers -->
+                <div class="panel" style="margin-top:12px;display:none" id="descriptionPanel">
+                    <h2>Описание одежды</h2>
+                    <div class="input-group">
+                        <label>Опишите изделие (стиль, силуэт, детали)</label>
+                        <textarea id="garmentDescription" placeholder="Например: вечернее платье-русалка, облегающий лиф, V-вырез, открытая спина, пышный шлейф от колена..." style="width:100%;padding:8px 12px;background:#0f3460;border:1px solid #2a2a4a;border-radius:6px;color:#fff;font-size:0.9em;min-height:90px;resize:vertical;font-family:inherit"></textarea>
+                    </div>
                 </div>
 
                 <!-- Measurements -->
@@ -202,7 +220,7 @@
                     <div class="loading-overlay" id="aiLoading">
                         <div class="spinner"></div>
                         <div class="loading-text" id="loadingText">Анализ фотографии...</div>
-                        <div class="loading-sub">Gemini определяет тип одежды и конструкцию</div>
+                        <div class="loading-sub" id="loadingSub">AI определяет тип одежды и конструкцию</div>
                     </div>
                     <div class="tabs" id="aiTabs">
                         <div class="tab active" onclick="switchAiTab('pieces')">Лекала</div>
@@ -319,27 +337,38 @@ var aiResult = null;
 var aiCurrentTab = 'pieces';
 var uploadedImageData = null;
 var uploadedImageType = 'image/jpeg';
+var currentProvider = 'gemini';
 
-// API Key
+var providerCfg = {
+    gemini:   { name: 'Google Gemini', placeholder: 'AIzaSy...',  hint: 'aistudio.google.com/apikey (бесплатно)', key: 'patternGeminiKey',   vision: true  },
+    deepseek: { name: 'DeepSeek',      placeholder: 'sk-...',     hint: 'platform.deepseek.com/api_keys',        key: 'patternDeepseekKey', vision: false },
+    grok:     { name: 'Grok / xAI',    placeholder: 'xai-...',    hint: 'console.x.ai',                          key: 'patternGrokKey',     vision: true  }
+};
+
+function onProviderChange() {
+    currentProvider = el('aiProvider').value;
+    var cfg = providerCfg[currentProvider];
+    el('apiKeyLabel').textContent = cfg.name + ' API Key';
+    el('aiApiKey').placeholder = cfg.placeholder;
+    el('apiKeyHint').textContent = cfg.hint;
+    var saved = localStorage.getItem(cfg.key);
+    el('aiApiKey').value = saved || '';
+    el('aiApiStatus').textContent = saved ? 'Ключ загружен' : 'Ключ не сохранён';
+    el('aiApiStatus').className = saved ? 'api-status ok' : 'api-status no';
+    el('uploadPanel').style.display = cfg.vision ? 'block' : 'none';
+    el('descriptionPanel').style.display = cfg.vision ? 'none' : 'block';
+    el('loadingSub').textContent = cfg.name + ' определяет тип одежды и конструкцию';
+}
+
 function saveApiKey() {
     var key = el('aiApiKey').value.trim();
     if (key) {
-        localStorage.setItem('patternGeminiKey', key);
+        localStorage.setItem(providerCfg[currentProvider].key, key);
         el('aiApiStatus').textContent = 'Ключ сохранён';
         el('aiApiStatus').className = 'api-status ok';
     }
 }
-function loadApiKey() {
-    var key = localStorage.getItem('patternGeminiKey');
-    if (key) {
-        el('aiApiKey').value = key;
-        el('aiApiStatus').textContent = 'Ключ загружен из памяти';
-        el('aiApiStatus').className = 'api-status ok';
-    } else {
-        el('aiApiStatus').textContent = 'Введите API-ключ с aistudio.google.com/apikey';
-        el('aiApiStatus').className = 'api-status no';
-    }
-}
+function loadApiKey() { onProviderChange(); }
 
 // Photo upload
 function setupUpload() {
@@ -425,69 +454,31 @@ function getAiMeasurements() {
     };
 }
 
-// Gemini API call
+// Dispatch API call
 function analyzeAndGenerate() {
-    var apiKey = localStorage.getItem('patternGeminiKey');
-    if (!apiKey) { showAiError('Введите и сохраните API-ключ (aistudio.google.com/apikey)'); return; }
-    if (!uploadedImageData) { showAiError('Загрузите фото одежды'); return; }
+    var cfg = providerCfg[currentProvider];
+    var apiKey = localStorage.getItem(cfg.key);
+    if (!apiKey) { showAiError('Введите и сохраните API-ключ (' + cfg.hint + ')'); return; }
+    if (cfg.vision && !uploadedImageData) { showAiError('Загрузите фото одежды'); return; }
+    if (!cfg.vision && !el('garmentDescription').value.trim()) { showAiError('Опишите изделие в поле выше'); return; }
 
     hideAiError();
     el('aiLoading').classList.add('visible');
     el('btnAnalyze').disabled = true;
-    el('loadingText').textContent = 'Анализ фотографии...';
+    el('loadingText').textContent = 'Анализ...';
 
     var m = getAiMeasurements();
-    var prompt = buildPrompt(m);
-
-    var body = {
-        contents: [{
-            parts: [
-                { text: prompt },
-                { inlineData: { mimeType: 'image/jpeg', data: uploadedImageData } }
-            ]
-        }],
-        generationConfig: {
-            maxOutputTokens: 8192,
-            temperature: 0.3
-        }
-    };
-
-    var model = 'gemini-2.5-flash-preview-05-20';
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
-
+    var description = cfg.vision ? null : el('garmentDescription').value.trim();
+    var prompt = buildPrompt(m, description);
     var controller = new AbortController();
     var timeout = setTimeout(function() { controller.abort(); }, 120000);
 
-    fetch(url, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    })
-    .then(function(r) {
-        if (!r.ok) return r.json().then(function(e) {
-            var msg = (e.error && e.error.message) ? e.error.message : 'HTTP ' + r.status;
-            if (r.status === 400) msg = 'Неверный запрос: ' + msg;
-            if (r.status === 403) msg = 'API-ключ не имеет доступа. Проверьте ключ на aistudio.google.com';
-            if (r.status === 429) msg = 'Лимит запросов исчерпан. Подождите минуту и попробуйте снова';
-            throw new Error(msg);
-        });
-        return r.json();
-    })
-    .then(function(data) {
-        var text = '';
-        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
-            data.candidates[0].content.parts.forEach(function(p) { if (p.text) text += p.text; });
-        }
-        if (!text) {
-            var reason = data.candidates && data.candidates[0] ? data.candidates[0].finishReason : '';
-            if (reason === 'SAFETY') throw new Error('Запрос заблокирован фильтром безопасности. Попробуйте другое фото');
-            throw new Error('Пустой ответ от API');
-        }
+    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+    callFn(apiKey, prompt, uploadedImageData, controller.signal)
+    .then(function(text) {
         el('loadingText').textContent = 'Строим выкройку...';
         aiResult = parseAiJSON(text);
         renderAiResult();
-        // Scroll to result on mobile
         if (window.innerWidth <= 768) {
             var area = el('aiResultArea');
             if (area) area.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -509,9 +500,86 @@ function analyzeAndGenerate() {
     });
 }
 
-function buildPrompt(m) {
+function callGemini(apiKey, prompt, imageData, signal) {
+    var parts = [{ text: prompt }];
+    if (imageData) parts.push({ inlineData: { mimeType: uploadedImageType || 'image/jpeg', data: imageData } });
+    var body = { contents: [{ parts: parts }], generationConfig: { maxOutputTokens: 8192, temperature: 0.3 } };
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=' + encodeURIComponent(apiKey);
+    return fetch(url, { method: 'POST', signal: signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) {
+        if (!r.ok) return r.json().then(function(e) {
+            var msg = (e.error && e.error.message) ? e.error.message : 'HTTP ' + r.status;
+            if (r.status === 403) msg = 'API-ключ Gemini не имеет доступа. Проверьте на aistudio.google.com';
+            if (r.status === 429) msg = 'Лимит Gemini. Подождите минуту';
+            throw new Error(msg);
+        });
+        return r.json();
+    })
+    .then(function(data) {
+        var text = '';
+        if (data.candidates && data.candidates[0] && data.candidates[0].content)
+            data.candidates[0].content.parts.forEach(function(p) { if (p.text) text += p.text; });
+        if (!text) {
+            var r = data.candidates && data.candidates[0] ? data.candidates[0].finishReason : '';
+            if (r === 'SAFETY') throw new Error('Запрос заблокирован фильтром безопасности');
+            throw new Error('Пустой ответ от Gemini');
+        }
+        return text;
+    });
+}
+
+function callDeepSeek(apiKey, prompt, imageData, signal) {
+    var body = { model: 'deepseek-chat', messages: [{ role: 'user', content: prompt }], max_tokens: 8192, temperature: 0.3 };
+    return fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST', signal: signal,
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+        body: JSON.stringify(body)
+    })
+    .then(function(r) {
+        if (!r.ok) return r.json().then(function(e) {
+            var msg = (e.error && e.error.message) ? e.error.message : 'HTTP ' + r.status;
+            if (r.status === 401) msg = 'Неверный API-ключ DeepSeek';
+            if (r.status === 429) msg = 'Лимит DeepSeek. Подождите';
+            throw new Error(msg);
+        });
+        return r.json();
+    })
+    .then(function(data) {
+        if (!data.choices || !data.choices[0]) throw new Error('Пустой ответ от DeepSeek');
+        return data.choices[0].message.content;
+    });
+}
+
+function callGrok(apiKey, prompt, imageData, signal) {
+    var content = [{ type: 'text', text: prompt }];
+    if (imageData) content.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + imageData } });
+    var model = imageData ? 'grok-2-vision-1212' : 'grok-3';
+    var body = { model: model, messages: [{ role: 'user', content: content }], max_tokens: 8192, temperature: 0.3 };
+    return fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST', signal: signal,
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+        body: JSON.stringify(body)
+    })
+    .then(function(r) {
+        if (!r.ok) return r.json().then(function(e) {
+            var msg = (e.error && e.error.message) ? e.error.message : 'HTTP ' + r.status;
+            if (r.status === 401) msg = 'Неверный API-ключ Grok';
+            throw new Error(msg);
+        });
+        return r.json();
+    })
+    .then(function(data) {
+        if (!data.choices || !data.choices[0]) throw new Error('Пустой ответ от Grok');
+        return data.choices[0].message.content;
+    });
+}
+
+function buildPrompt(m, description) {
+    var garmentInfo = description
+        ? 'GARMENT DESCRIPTION (no photo):\n' + description + '\n\n'
+        : 'Analyze the provided clothing photo and generate a complete sewing pattern.\n\n';
     return 'You are an expert pattern maker and garment construction specialist.\n\n' +
-    'Analyze this clothing photo and generate a complete sewing pattern.\n\n' +
+    garmentInfo +
     'USER MEASUREMENTS (cm):\n' +
     '- Bust: ' + m.bust + '\n- Waist: ' + m.waist + '\n- Hips: ' + m.hips + '\n' +
     '- Shoulder width: ' + m.shoulder + '\n- Arm length: ' + m.armLength + '\n' +
