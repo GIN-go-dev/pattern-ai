@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pattern AI — Выкройки по фото</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        h1 { text-align: center; color: #b8ff00; font-size: 1.8em; margin-bottom: 5px; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 15px; font-size: 0.95em; }
+
+        /* Mode switcher */
+        .mode-switcher { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }
+        .mode-btn { padding: 10px 24px; background: #0f3460; border: 1px solid #2a2a4a; border-radius: 8px; color: #aaa; cursor: pointer; font-size: 0.95em; transition: all 0.2s; }
+        .mode-btn.active { background: #b8ff00; color: #1a1a2e; font-weight: bold; border-color: #b8ff00; }
+        .mode-btn:hover:not(.active) { background: #1a3a6e; color: #fff; }
+
+        .layout { display: grid; grid-template-columns: 360px 1fr; gap: 25px; }
+        .panel { background: #16213e; border-radius: 12px; padding: 20px; border: 1px solid #2a2a4a; }
+        .panel h2 { color: #b8ff00; font-size: 1.1em; margin-bottom: 15px; padding-bottom: 8px; border-bottom: 1px solid #2a2a4a; }
+        .input-group { margin-bottom: 12px; }
+        .input-group label { display: block; font-size: 0.85em; color: #aaa; margin-bottom: 4px; }
+        .input-group input, .input-group select { width: 100%; padding: 8px 12px; background: #0f3460; border: 1px solid #2a2a4a; border-radius: 6px; color: #fff; font-size: 0.95em; }
+        .input-group input:focus, .input-group select:focus { outline: none; border-color: #b8ff00; }
+        .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button.primary { width: 100%; padding: 12px; background: #b8ff00; color: #1a1a2e; border: none; border-radius: 8px; font-size: 1em; font-weight: bold; cursor: pointer; margin-top: 15px; transition: background 0.2s; }
+        button.primary:hover { background: #9de000; }
+        button.primary:disabled { background: #555; color: #888; cursor: not-allowed; }
+        button.secondary { width: 100%; padding: 10px; background: transparent; color: #b8ff00; border: 1px solid #b8ff00; border-radius: 8px; font-size: 0.9em; cursor: pointer; margin-top: 8px; transition: all 0.2s; }
+        button.secondary:hover { background: rgba(184,255,0,0.1); }
+        .pattern-area { min-height: 600px; position: relative; }
+        .pattern-area svg { width: 100%; height: 100%; }
+        .tabs { display: flex; gap: 5px; margin-bottom: 15px; flex-wrap: wrap; }
+        .tab { padding: 8px 14px; background: #0f3460; border: 1px solid #2a2a4a; border-radius: 6px 6px 0 0; color: #aaa; cursor: pointer; font-size: 0.82em; transition: all 0.2s; }
+        .tab.active { background: #1a3a6e; color: #b8ff00; border-bottom-color: #1a3a6e; }
+        .info-box { background: #0f3460; border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 0.85em; line-height: 1.5; }
+        .info-box strong { color: #b8ff00; }
+        .seam-allowance-note { background: #3d1e0f; border: 1px solid #ff6b35; border-radius: 8px; padding: 10px; margin-top: 10px; font-size: 0.82em; color: #ffaa80; }
+        .measurements-summary { background: #0f3460; border-radius: 8px; padding: 12px; margin-top: 12px; font-size: 0.82em; }
+        .measurements-summary .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #1a1a2e; }
+        .measurements-summary .row:last-child { border: none; }
+        .measurements-summary .val { color: #b8ff00; font-weight: bold; }
+        .instructions-panel { margin-top: 20px; }
+        .step { background: #0f3460; border-radius: 8px; padding: 15px; margin-bottom: 10px; border-left: 3px solid #b8ff00; }
+        .step-num { display: inline-block; background: #b8ff00; color: #1a1a2e; width: 24px; height: 24px; border-radius: 50%; text-align: center; line-height: 24px; font-weight: bold; font-size: 0.85em; margin-right: 8px; }
+        .step-title { font-weight: bold; color: #fff; margin-bottom: 6px; }
+        .step-text { font-size: 0.88em; color: #ccc; line-height: 1.5; }
+        .fabric-calc { background: #1a3a1a; border: 1px solid #4a8a4a; border-radius: 8px; padding: 12px; margin-top: 12px; }
+        .fabric-calc .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.85em; }
+        .fabric-calc .val { color: #88ff88; font-weight: bold; }
+        .legend { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.8em; }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-color { width: 20px; height: 3px; border-radius: 2px; }
+        .godet-count-display { text-align: center; font-size: 2em; color: #b8ff00; margin: 5px 0; }
+        .slider-container { margin: 8px 0; }
+        .slider-container input[type="range"] { width: 100%; -webkit-appearance: none; height: 6px; background: #0f3460; border-radius: 3px; outline: none; }
+        .slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #b8ff00; cursor: pointer; }
+
+        /* Photo upload */
+        .upload-zone { border: 2px dashed #2a2a4a; border-radius: 12px; padding: 30px 20px; text-align: center; cursor: pointer; transition: all 0.3s; min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .upload-zone:hover, .upload-zone.dragover { border-color: #b8ff00; background: rgba(184,255,0,0.05); }
+        .upload-zone .icon { font-size: 2.5em; margin-bottom: 10px; }
+        .upload-zone .text { color: #888; font-size: 0.9em; }
+        .upload-zone .text strong { color: #b8ff00; }
+        .upload-zone img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 10px; }
+        .upload-zone input[type="file"] { display: none; }
+
+        /* API key */
+        .api-key-row { display: flex; gap: 8px; }
+        .api-key-row input { flex: 1; font-family: monospace; font-size: 0.8em; }
+        .api-key-row button { padding: 8px 16px; background: #0f3460; border: 1px solid #2a2a4a; border-radius: 6px; color: #b8ff00; cursor: pointer; font-size: 0.85em; white-space: nowrap; }
+        .api-status { font-size: 0.8em; margin-top: 4px; }
+        .api-status.ok { color: #88ff88; }
+        .api-status.no { color: #ff6b6b; }
+
+        /* Loading */
+        .loading-overlay { display: none; position: absolute; inset: 0; background: rgba(22,33,62,0.95); border-radius: 12px; z-index: 10; flex-direction: column; align-items: center; justify-content: center; }
+        .loading-overlay.visible { display: flex; }
+        .spinner { width: 40px; height: 40px; border: 3px solid #2a2a4a; border-top-color: #b8ff00; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 15px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: #b8ff00; font-size: 0.95em; }
+        .loading-sub { color: #888; font-size: 0.82em; margin-top: 5px; }
+
+        /* Error */
+        .error-box { background: #3d1a1a; border: 1px solid #ff4a4a; border-radius: 8px; padding: 12px; margin-top: 10px; color: #ff8888; font-size: 0.85em; display: none; }
+
+        /* AI results */
+        .ai-piece-card { background: #0f3460; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 3px solid #b8ff00; }
+        .ai-piece-card h3 { color: #b8ff00; font-size: 0.95em; margin-bottom: 5px; }
+        .ai-piece-card .detail { font-size: 0.82em; color: #aaa; }
+
+        .notion-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1a1a2e; font-size: 0.85em; }
+
+        /* Touch-friendly for iPad */
+        @media (pointer: coarse) {
+            .mode-btn { padding: 14px 28px; font-size: 1em; }
+            .tab { padding: 10px 16px; font-size: 0.88em; }
+            button.primary { padding: 16px; font-size: 1.1em; }
+            .input-group input, .input-group select { padding: 12px; font-size: 1em; }
+            .upload-zone { min-height: 220px; padding: 40px 20px; }
+        }
+        @media (max-width: 768px) {
+            .layout { grid-template-columns: 1fr; }
+            .mode-switcher { flex-direction: column; align-items: center; }
+            .mode-switcher .mode-btn { width: 100%; max-width: 320px; text-align: center; }
+            h1 { font-size: 1.3em; }
+            .tabs { gap: 3px; }
+            .tab { padding: 6px 10px; font-size: 0.78em; }
+            .input-row { grid-template-columns: 1fr; }
+            .pattern-area { min-height: 400px; overflow-x: auto; }
+            .panel { padding: 15px; }
+        }
+        @media print {
+            body { background: white; color: black; }
+            .panel { border: 1px solid #ccc; background: white; }
+            button, .mode-switcher, .upload-zone { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Pattern AI</h1>
+    <p class="subtitle">Выкройки по фото любой одежды</p>
+
+    <div class="mode-switcher">
+        <button class="mode-btn" onclick="switchMode('ai')" id="modeAI">AI-генератор по фото</button>
+        <button class="mode-btn" onclick="switchMode('classic')" id="modeClassic">Юбка-русалка (классика)</button>
+    </div>
+
+    <!-- ==================== AI MODE ==================== -->
+    <div id="aiMode" style="display:none">
+        <div class="layout">
+            <div>
+                <!-- API Key -->
+                <div class="panel">
+                    <h2>Настройки API</h2>
+                    <div class="input-group">
+                        <label>Google Gemini API Key</label>
+                        <div class="api-key-row">
+                            <input type="password" id="aiApiKey" placeholder="AIzaSy...">
+                            <button onclick="saveApiKey()">Сохранить</button>
+                        </div>
+                        <div class="api-status" id="aiApiStatus"></div>
+                    </div>
+                </div>
+
+                <!-- Photo upload -->
+                <div class="panel" style="margin-top:12px">
+                    <h2>Фото одежды</h2>
+                    <div class="upload-zone" id="uploadZone" onclick="if(!uploadedImageData) document.getElementById('photoInput').click()">
+                        <div id="uploadPlaceholder">
+                            <div class="icon">&#128247;</div>
+                            <div class="text">Перетащите фото сюда<br>или <strong>нажмите для выбора</strong><br><span style="font-size:0.85em;color:#666">iPad: откроется камера</span></div>
+                        </div>
+                        <img id="photoPreview" style="display:none">
+                        <input type="file" id="photoInput" accept="image/*" capture="environment">
+                    </div>
+                    <button class="secondary" id="btnClearPhoto" style="display:none" onclick="clearPhoto()">Заменить фото</button>
+                </div>
+
+                <!-- Measurements -->
+                <div class="panel" style="margin-top:12px">
+                    <h2>Мерки (см)</h2>
+                    <div class="input-group">
+                        <label>Типовой размер</label>
+                        <select id="aiSizePreset" onchange="applyAiPreset()">
+                            <option value="">— свои мерки —</option>
+                            <option value="S">S (42-44) рост 164</option>
+                            <option value="M">M (44-46) рост 167</option>
+                            <option value="L" selected>L (48-50) рост 167</option>
+                            <option value="XL">XL (50-52) рост 170</option>
+                        </select>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group"><label>Обхват груди</label><input type="number" id="aiBust" value="96" min="70" max="140"></div>
+                        <div class="input-group"><label>Обхват талии</label><input type="number" id="aiWaist" value="76" min="55" max="120"></div>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group"><label>Обхват бёдер</label><input type="number" id="aiHips" value="102" min="75" max="140"></div>
+                        <div class="input-group"><label>Ширина плеч</label><input type="number" id="aiShoulder" value="40" min="30" max="55"></div>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group"><label>Длина рукава</label><input type="number" id="aiArmLength" value="58" min="40" max="75"></div>
+                        <div class="input-group"><label>Длина торса</label><input type="number" id="aiTorso" value="40" min="30" max="55"></div>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group"><label>Талия — бёдра</label><input type="number" id="aiWaistToHip" value="20" min="15" max="28"></div>
+                        <div class="input-group"><label>Длина изделия</label><input type="number" id="aiLength" value="100" min="20" max="160"></div>
+                    </div>
+                    <div class="input-group"><label>Припуски на швы (см)</label><input type="number" id="aiSeam" value="1.5" min="0.5" max="3" step="0.5"></div>
+
+                    <button class="primary" id="btnAnalyze" onclick="analyzeAndGenerate()">Раскроить</button>
+                    <div class="error-box" id="aiError"></div>
+                </div>
+            </div>
+
+            <!-- AI Results -->
+            <div>
+                <div class="panel pattern-area" style="position:relative">
+                    <div class="loading-overlay" id="aiLoading">
+                        <div class="spinner"></div>
+                        <div class="loading-text" id="loadingText">Анализ фотографии...</div>
+                        <div class="loading-sub">Gemini определяет тип одежды и конструкцию</div>
+                    </div>
+                    <div class="tabs" id="aiTabs">
+                        <div class="tab active" onclick="switchAiTab('pieces')">Лекала</div>
+                        <div class="tab" onclick="switchAiTab('layout')">Раскладка</div>
+                        <div class="tab" onclick="switchAiTab('instructions')">Пошив</div>
+                        <div class="tab" onclick="switchAiTab('materials')">Материалы</div>
+                    </div>
+                    <div id="aiResultArea">
+                        <svg id="aiSVG" viewBox="0 0 800 700" xmlns="http://www.w3.org/2000/svg">
+                            <text x="400" y="350" text-anchor="middle" fill="#444" font-size="15" font-family="sans-serif">Загрузите фото и нажмите «Раскроить»</text>
+                        </svg>
+                    </div>
+                    <div id="aiInstructionsArea" style="display:none"></div>
+                    <div id="aiMaterialsArea" style="display:none"></div>
+                </div>
+
+                <div class="panel" style="margin-top:12px" id="aiSummaryPanel">
+                    <h2 id="aiGarmentTitle">Результат анализа</h2>
+                    <div class="measurements-summary" id="aiCutSummary">
+                        <div class="row"><span>Ожидание анализа...</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== CLASSIC MODE ==================== -->
+    <div id="classicMode" style="display:none">
+        <div class="layout">
+            <div>
+                <div class="panel">
+                    <h2>Ваши мерки (см)</h2>
+                    <div class="input-group"><label>Типовой размер</label>
+                        <select id="sizePreset" onchange="applyPreset()">
+                            <option value="">— свои мерки —</option>
+                            <option value="S">S (42-44) рост 164</option>
+                            <option value="M">M (44-46) рост 167</option>
+                            <option value="L" selected>L (48-50) рост 167</option>
+                            <option value="XL">XL (50-52) рост 170</option>
+                        </select>
+                    </div>
+                    <div class="input-group"><label>Обхват талии</label><input type="number" id="waist" value="76" min="55" max="120" step="0.5"></div>
+                    <div class="input-group"><label>Обхват бёдер</label><input type="number" id="hips" value="102" min="75" max="140" step="0.5"></div>
+                    <div class="input-group"><label>Длина от талии до бёдер</label><input type="number" id="waistToHip" value="20" min="15" max="28" step="0.5"></div>
+                    <div class="input-group"><label>Длина от талии до колена</label><input type="number" id="waistToKnee" value="58" min="50" max="75" step="0.5"></div>
+                    <div class="input-group"><label>Длина юбки (до пола)</label><input type="number" id="skirtLength" value="100" min="85" max="130" step="0.5"></div>
+                    <div class="input-group"><label>Обхват колена</label><input type="number" id="knee" value="40" min="30" max="55" step="0.5"></div>
+                    <div class="input-group"><label>Количество клиньев</label>
+                        <div class="godet-count-display" id="godetCountDisplay">8</div>
+                        <div class="slider-container"><input type="range" id="godetCount" min="6" max="12" value="8" step="2"></div>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group"><label>Припуски (см)</label><input type="number" id="seamAllowance" value="1.5" min="0.5" max="3" step="0.5"></div>
+                        <div class="input-group"><label>Подгиб (см)</label><input type="number" id="hemAllowance" value="2" min="1" max="5" step="0.5"></div>
+                    </div>
+                    <div class="input-group"><label>Посадка</label>
+                        <select id="rise">
+                            <option value="low">Заниженная (на бёдрах)</option>
+                            <option value="normal" selected>Нормальная (на талии)</option>
+                            <option value="high">Завышенная</option>
+                        </select>
+                    </div>
+                    <button class="primary" onclick="generatePattern()">Построить выкройку</button>
+                    <button class="secondary" onclick="window.print()">Печать</button>
+                </div>
+                <div class="panel" style="margin-top:12px"><h2>Расход ткани</h2><div class="fabric-calc" id="fabricCalc"><div class="row"><span>Загрузка...</span></div></div></div>
+                <div class="panel" style="margin-top:12px"><h2>Рекомендации по ткани</h2>
+                    <div class="info-box"><strong>Для этой модели:</strong><br>— Тафта — держит форму<br>— Атлас-дюшес<br>— Микадо<br>— Габардин<br><br><strong>Дополнительно:</strong><br>— Потайная молния 20-25 см<br>— Подкладочная ткань<br>— Регилин для подола</div>
+                </div>
+            </div>
+            <div>
+                <div class="panel pattern-area">
+                    <div class="tabs">
+                        <div class="tab active" onclick="switchTab('main')">Панель</div>
+                        <div class="tab" onclick="switchTab('godet')">Клин-годе</div>
+                        <div class="tab" onclick="switchTab('waistband')">Пояс</div>
+                        <div class="tab" onclick="switchTab('all')">Раскладка</div>
+                        <div class="tab" onclick="switchTab('instructions')">Инструкция</div>
+                    </div>
+                    <div class="legend" id="legend">
+                        <div class="legend-item"><div class="legend-color" style="background:#b8ff00"></div> Линия кроя</div>
+                        <div class="legend-item"><div class="legend-color" style="background:repeating-linear-gradient(to right,#ff6b35 0,#ff6b35 5px,transparent 5px,transparent 9px);height:2px"></div> Припуски</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#4a9eff"></div> Разметка</div>
+                        <div class="legend-item"><div class="legend-color" style="background:#ff4a6e"></div> Долевая</div>
+                    </div>
+                    <div id="patternContent"><svg id="patternSVG" viewBox="0 0 800 900" xmlns="http://www.w3.org/2000/svg"><text x="400" y="450" text-anchor="middle" fill="#666" font-size="16">Загрузка...</text></svg></div>
+                    <div id="instructionsContent" style="display:none"></div>
+                </div>
+                <div class="panel" style="margin-top:12px"><h2>Детали кроя</h2>
+                    <div class="measurements-summary" id="cutSummary"><div class="row"><span>Загрузка...</span></div></div>
+                    <div class="seam-allowance-note">Размеры на выкройке указаны <strong>без припусков</strong>. Припуски добавляйте при раскрое.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ==================== GLOBAL ==================== */
+var currentMode = 'ai';
+var el = function(id) { return document.getElementById(id); };
+
+function switchMode(mode) {
+    currentMode = mode;
+    el('aiMode').style.display = mode === 'ai' ? 'block' : 'none';
+    el('classicMode').style.display = mode === 'classic' ? 'block' : 'none';
+    el('modeAI').className = 'mode-btn' + (mode === 'ai' ? ' active' : '');
+    el('modeClassic').className = 'mode-btn' + (mode === 'classic' ? ' active' : '');
+    if (mode === 'classic' && !patternData) generatePattern();
+}
+
+/* ==================== AI MODE ==================== */
+var aiResult = null;
+var aiCurrentTab = 'pieces';
+var uploadedImageData = null;
+var uploadedImageType = 'image/jpeg';
+
+// API Key
+function saveApiKey() {
+    var key = el('aiApiKey').value.trim();
+    if (key) {
+        localStorage.setItem('patternGeminiKey', key);
+        el('aiApiStatus').textContent = 'Ключ сохранён';
+        el('aiApiStatus').className = 'api-status ok';
+    }
+}
+function loadApiKey() {
+    var key = localStorage.getItem('patternGeminiKey');
+    if (key) {
+        el('aiApiKey').value = key;
+        el('aiApiStatus').textContent = 'Ключ загружен из памяти';
+        el('aiApiStatus').className = 'api-status ok';
+    } else {
+        el('aiApiStatus').textContent = 'Введите API-ключ с aistudio.google.com/apikey';
+        el('aiApiStatus').className = 'api-status no';
+    }
+}
+
+// Photo upload
+function setupUpload() {
+    var zone = el('uploadZone');
+    var input = el('photoInput');
+
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', function(e) {
+        e.preventDefault(); zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', function() { if (input.files.length) handleFile(input.files[0]); });
+}
+
+function handleFile(file) {
+    if (!file.type.startsWith('image/')) { showAiError('Выберите изображение (JPG, PNG)'); return; }
+    if (file.size > 20 * 1024 * 1024) { showAiError('Файл слишком большой (макс. 20 МБ)'); return; }
+    uploadedImageType = file.type;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        resizeImage(e.target.result, 1568, function(resized) {
+            uploadedImageData = resized.split(',')[1];
+            el('photoPreview').src = resized;
+            el('photoPreview').style.display = 'block';
+            el('uploadPlaceholder').style.display = 'none';
+            el('btnClearPhoto').style.display = 'block';
+            hideAiError();
+        });
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearPhoto() {
+    uploadedImageData = null;
+    el('photoPreview').style.display = 'none';
+    el('photoPreview').src = '';
+    el('uploadPlaceholder').style.display = 'flex';
+    el('btnClearPhoto').style.display = 'none';
+    el('photoInput').value = '';
+    document.getElementById('photoInput').click();
+}
+
+function resizeImage(dataURL, maxDim, callback) {
+    var img = new Image();
+    img.onload = function() {
+        var w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+            var ratio = Math.min(maxDim / w, maxDim / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.src = dataURL;
+}
+
+// AI Size presets
+var aiPresets = {
+    S:  { bust: 88, waist: 64, hips: 92,  shoulder: 38, armLength: 56, torso: 38, waistToHip: 19, length: 98 },
+    M:  { bust: 92, waist: 70, hips: 96,  shoulder: 39, armLength: 57, torso: 39, waistToHip: 20, length: 100 },
+    L:  { bust: 96, waist: 76, hips: 102, shoulder: 40, armLength: 58, torso: 40, waistToHip: 20, length: 100 },
+    XL: { bust: 102, waist: 82, hips: 108, shoulder: 42, armLength: 59, torso: 41, waistToHip: 21, length: 103 }
+};
+function applyAiPreset() {
+    var s = el('aiSizePreset').value;
+    if (!s || !aiPresets[s]) return;
+    var p = aiPresets[s];
+    el('aiBust').value = p.bust; el('aiWaist').value = p.waist; el('aiHips').value = p.hips;
+    el('aiShoulder').value = p.shoulder; el('aiArmLength').value = p.armLength;
+    el('aiTorso').value = p.torso; el('aiWaistToHip').value = p.waistToHip; el('aiLength').value = p.length;
+}
+
+function getAiMeasurements() {
+    return {
+        bust: el('aiBust').value, waist: el('aiWaist').value, hips: el('aiHips').value,
+        shoulder: el('aiShoulder').value, armLength: el('aiArmLength').value,
+        torso: el('aiTorso').value, waistToHip: el('aiWaistToHip').value,
+        length: el('aiLength').value, seam: el('aiSeam').value
+    };
+}
+
+// Gemini API call
+function analyzeAndGenerate() {
+    var apiKey = localStorage.getItem('patternGeminiKey');
+    if (!apiKey) { showAiError('Введите и сохраните API-ключ (aistudio.google.com/apikey)'); return; }
+    if (!uploadedImageData) { showAiError('Загрузите фото одежды'); return; }
+
+    hideAiError();
+    el('aiLoading').classList.add('visible');
+    el('btnAnalyze').disabled = true;
+    el('loadingText').textContent = 'Анализ фотографии...';
+
+    var m = getAiMeasurements();
+    var prompt = buildPrompt(m);
+
+    var body = {
+        contents: [{
+            parts: [
+                { text: prompt },
+                { inlineData: { mimeType: 'image/jpeg', data: uploadedImageData } }
+            ]
+        }],
+        generationConfig: {
+            maxOutputTokens: 8192,
+            temperature: 0.3
+        }
+    };
+
+    var model = 'gemini-2.5-flash-preview-05-20';
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
+
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 120000);
+
+    fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    })
+    .then(function(r) {
+        if (!r.ok) return r.json().then(function(e) {
+            var msg = (e.error && e.error.message) ? e.error.message : 'HTTP ' + r.status;
+            if (r.status === 400) msg = 'Неверный запрос: ' + msg;
+            if (r.status === 403) msg = 'API-ключ не имеет доступа. Проверьте ключ на aistudio.google.com';
+            if (r.status === 429) msg = 'Лимит запросов исчерпан. Подождите минуту и попробуйте снова';
+            throw new Error(msg);
+        });
+        return r.json();
+    })
+    .then(function(data) {
+        var text = '';
+        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+            data.candidates[0].content.parts.forEach(function(p) { if (p.text) text += p.text; });
+        }
+        if (!text) {
+            var reason = data.candidates && data.candidates[0] ? data.candidates[0].finishReason : '';
+            if (reason === 'SAFETY') throw new Error('Запрос заблокирован фильтром безопасности. Попробуйте другое фото');
+            throw new Error('Пустой ответ от API');
+        }
+        el('loadingText').textContent = 'Строим выкройку...';
+        aiResult = parseAiJSON(text);
+        renderAiResult();
+        // Scroll to result on mobile
+        if (window.innerWidth <= 768) {
+            var area = el('aiResultArea');
+            if (area) area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    })
+    .catch(function(err) {
+        if (err.name === 'AbortError') {
+            showAiError('Таймаут: ответ не получен за 2 минуты. Попробуйте ещё раз');
+        } else if (err.message.indexOf('Failed to fetch') > -1) {
+            showAiError('Нет соединения с API. Проверьте интернет');
+        } else {
+            showAiError(err.message);
+        }
+    })
+    .finally(function() {
+        clearTimeout(timeout);
+        el('aiLoading').classList.remove('visible');
+        el('btnAnalyze').disabled = false;
+    });
+}
+
+function buildPrompt(m) {
+    return 'You are an expert pattern maker and garment construction specialist.\n\n' +
+    'Analyze this clothing photo and generate a complete sewing pattern.\n\n' +
+    'USER MEASUREMENTS (cm):\n' +
+    '- Bust: ' + m.bust + '\n- Waist: ' + m.waist + '\n- Hips: ' + m.hips + '\n' +
+    '- Shoulder width: ' + m.shoulder + '\n- Arm length: ' + m.armLength + '\n' +
+    '- Torso (shoulder to waist): ' + m.torso + '\n- Waist to hip: ' + m.waistToHip + '\n' +
+    '- Desired length: ' + m.length + '\n- Seam allowance: ' + m.seam + ' cm\n\n' +
+    'Respond with ONLY valid JSON in this schema:\n' +
+    '{\n' +
+    '  "garmentType": "string (Russian)",\n' +
+    '  "description": "string (Russian, brief style description)",\n' +
+    '  "difficulty": "beginner|intermediate|advanced",\n' +
+    '  "pieces": [\n' +
+    '    {\n' +
+    '      "id": "string",\n' +
+    '      "name": "string (Russian)",\n' +
+    '      "quantity": number,\n' +
+    '      "cutOnFold": boolean,\n' +
+    '      "shape": {\n' +
+    '        "points": [{"x": cm, "y": cm}],\n' +
+    '        "curves": [{"from": pointIndex, "to": pointIndex, "cp1": {"x":cm,"y":cm}, "cp2": {"x":cm,"y":cm}}]\n' +
+    '      },\n' +
+    '      "width": number_cm,\n' +
+    '      "height": number_cm,\n' +
+    '      "markings": [{"type": "dart|notch|gather|zipper", "x": cm, "y": cm, "label": "string"}]\n' +
+    '    }\n' +
+    '  ],\n' +
+    '  "fabric": {\n' +
+    '    "type": "string (Russian, recommended fabric)",\n' +
+    '    "widthCm": 150,\n' +
+    '    "lengthCm": number,\n' +
+    '    "lining": boolean,\n' +
+    '    "liningLengthCm": number\n' +
+    '  },\n' +
+    '  "notions": [{"item": "string (Russian)", "qty": "string"}],\n' +
+    '  "instructions": [{"step": number, "title": "string (Russian)", "text": "string (Russian)"}]\n' +
+    '}\n\n' +
+    'RULES:\n' +
+    '1. All coordinates in cm, origin at piece top-left (0,0). Points clockwise.\n' +
+    '2. Curves are cubic bezier. Only add curves for non-straight edges.\n' +
+    '3. Generate realistic proportions based on measurements.\n' +
+    '4. Seam allowance is NOT included in dimensions.\n' +
+    '5. ALL text in Russian.\n' +
+    '6. Be precise with dimensions. Consider ease for garment type.\n' +
+    '7. Include all necessary pieces (facings, waistband, etc.).\n' +
+    '8. Instructions should be detailed, step-by-step for home sewing machine.';
+}
+
+function parseAiJSON(text) {
+    var clean = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    var match = clean.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Не удалось извлечь JSON из ответа AI. Попробуйте повторить запрос');
+    var raw = match[0];
+    try {
+        return JSON.parse(raw);
+    } catch(e1) {
+        // Fix trailing commas
+        var fixed = raw.replace(/,\s*([}\]])/g, '$1');
+        try {
+            return JSON.parse(fixed);
+        } catch(e2) {
+            // Fix unquoted keys, single quotes
+            fixed = fixed.replace(/'/g, '"');
+            try {
+                return JSON.parse(fixed);
+            } catch(e3) {
+                throw new Error('Ответ AI содержит невалидный JSON. Попробуйте повторить запрос');
+            }
+        }
+    }
+}
+
+function showAiError(msg) { var e = el('aiError'); e.textContent = msg; e.style.display = 'block'; }
+function hideAiError() { el('aiError').style.display = 'none'; }
+
+// AI Tab switching
+function switchAiTab(tab) {
+    aiCurrentTab = tab;
+    var tabs = el('aiTabs').children;
+    var tabNames = ['pieces', 'layout', 'instructions', 'materials'];
+    for (var i = 0; i < tabs.length; i++) tabs[i].className = 'tab' + (tabNames[i] === tab ? ' active' : '');
+
+    el('aiResultArea').style.display = (tab === 'pieces' || tab === 'layout') ? 'block' : 'none';
+    el('aiInstructionsArea').style.display = tab === 'instructions' ? 'block' : 'none';
+    el('aiMaterialsArea').style.display = tab === 'materials' ? 'block' : 'none';
+
+    if (aiResult) renderAiResult();
+}
+
+function renderAiResult() {
+    if (!aiResult) return;
+    el('aiGarmentTitle').textContent = aiResult.garmentType || 'Результат';
+    updateAiSummary();
+
+    switch(aiCurrentTab) {
+        case 'pieces': drawAiPieces(); break;
+        case 'layout': drawAiLayout(); break;
+        case 'instructions': renderAiInstructions(); break;
+        case 'materials': renderAiMaterials(); break;
+    }
+}
+
+function drawAiPieces() {
+    var svg = el('aiSVG');
+    var pieces = aiResult.pieces || [];
+    if (!pieces.length) { svg.innerHTML = '<text x="400" y="350" text-anchor="middle" fill="#666" font-size="14">Нет деталей</text>'; return; }
+
+    var scale = 4;
+    var padding = 40;
+    var colWidth = 0;
+    var rowHeight = 0;
+
+    // Calculate layout
+    pieces.forEach(function(p) {
+        var w = (p.width || 30) * scale + padding;
+        var h = (p.height || 40) * scale + padding;
+        if (w > colWidth) colWidth = w;
+        if (h > rowHeight) rowHeight = h;
+    });
+
+    var cols = Math.max(1, Math.floor(800 / colWidth));
+    var rows = Math.ceil(pieces.length / cols);
+    var vw = cols * colWidth + padding;
+    var vh = rows * rowHeight + padding * 2;
+    svg.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh);
+
+    var html = '';
+    html += '<defs><pattern id="aiGrid" width="10" height="10" patternUnits="userSpaceOnUse">';
+    html += '<path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2a4a" stroke-width="0.5"/>';
+    html += '</pattern></defs><rect width="100%" height="100%" fill="url(#aiGrid)"/>';
+
+    pieces.forEach(function(piece, idx) {
+        var col = idx % cols;
+        var row = Math.floor(idx / cols);
+        var ox = padding + col * colWidth;
+        var oy = padding + row * rowHeight;
+        html += drawSinglePiece(piece, ox, oy, scale);
+    });
+
+    svg.innerHTML = html;
+}
+
+function drawSinglePiece(piece, ox, oy, scale) {
+    var html = '';
+    var pts = piece.shape ? piece.shape.points || [] : [];
+    var curves = piece.shape ? piece.shape.curves || [] : [];
+    var w = (piece.width || 30) * scale;
+    var h = (piece.height || 40) * scale;
+
+    if (pts.length >= 3) {
+        // Build curve map
+        var curveMap = {};
+        curves.forEach(function(c) { curveMap[c.from] = c; });
+
+        var path = 'M ' + (ox + pts[0].x * scale) + ' ' + (oy + pts[0].y * scale);
+        for (var i = 0; i < pts.length; i++) {
+            var next = (i + 1) % pts.length;
+            if (curveMap[i]) {
+                var c = curveMap[i];
+                var tp = pts[c.to];
+                path += ' C ' + (ox + c.cp1.x * scale) + ' ' + (oy + c.cp1.y * scale) + ', ' +
+                        (ox + c.cp2.x * scale) + ' ' + (oy + c.cp2.y * scale) + ', ' +
+                        (ox + tp.x * scale) + ' ' + (oy + tp.y * scale);
+            } else {
+                path += ' L ' + (ox + pts[next].x * scale) + ' ' + (oy + pts[next].y * scale);
+            }
+        }
+        path += ' Z';
+        html += '<path d="' + path + '" fill="rgba(184,255,0,0.06)" stroke="#b8ff00" stroke-width="1.5"/>';
+    } else {
+        // Fallback: rectangle
+        html += '<rect x="' + ox + '" y="' + oy + '" width="' + w + '" height="' + h + '" fill="rgba(184,255,0,0.06)" stroke="#b8ff00" stroke-width="1.5" rx="2"/>';
+    }
+
+    // Grain line
+    var cx = ox + w / 2;
+    html += '<line x1="' + cx + '" y1="' + (oy + 10) + '" x2="' + cx + '" y2="' + (oy + h - 10) + '" stroke="#ff4a6e" stroke-width="1" stroke-dasharray="6,3"/>';
+    html += '<polygon points="' + (cx-3) + ',' + (oy+15) + ' ' + (cx+3) + ',' + (oy+15) + ' ' + cx + ',' + (oy+10) + '" fill="#ff4a6e"/>';
+
+    // Markings
+    (piece.markings || []).forEach(function(mk) {
+        var mx = ox + mk.x * scale;
+        var my = oy + mk.y * scale;
+        if (mk.type === 'dart') {
+            html += '<polygon points="' + mx + ',' + my + ' ' + (mx-4) + ',' + (my+12) + ' ' + (mx+4) + ',' + (my+12) + '" fill="none" stroke="#ff6b35" stroke-width="1"/>';
+        } else if (mk.type === 'notch') {
+            html += '<line x1="' + (mx-4) + '" y1="' + my + '" x2="' + (mx+4) + '" y2="' + my + '" stroke="#4a9eff" stroke-width="2"/>';
+        } else if (mk.type === 'gather') {
+            html += '<text x="' + mx + '" y="' + my + '" fill="#ff9600" font-size="8" text-anchor="middle" font-family="sans-serif">~~~</text>';
+        }
+    });
+
+    // Name + quantity
+    html += '<text x="' + (ox + w/2) + '" y="' + (oy + h/2 - 6) + '" text-anchor="middle" fill="rgba(184,255,0,0.5)" font-size="11" font-weight="bold" font-family="sans-serif">' + (piece.name || piece.id) + '</text>';
+    var info = piece.quantity + ' шт.';
+    if (piece.cutOnFold) info += ' (со сгибом)';
+    html += '<text x="' + (ox + w/2) + '" y="' + (oy + h/2 + 10) + '" text-anchor="middle" fill="rgba(184,255,0,0.3)" font-size="9" font-family="sans-serif">' + info + '</text>';
+
+    // Dimensions
+    html += '<text x="' + (ox + w/2) + '" y="' + (oy - 6) + '" text-anchor="middle" fill="#888" font-size="9" font-family="sans-serif">' + (piece.width || '?') + ' x ' + (piece.height || '?') + ' см</text>';
+
+    return html;
+}
+
+function drawAiLayout() {
+    var svg = el('aiSVG');
+    var pieces = aiResult.pieces || [];
+    var fabricW = (aiResult.fabric ? aiResult.fabric.widthCm : 150) || 150;
+    var scale = 2;
+    var ox = 30;
+    var oy = 30;
+    var svgW = fabricW * scale + ox * 2;
+
+    // Simple layout: stack pieces
+    var html = '';
+    html += '<defs><pattern id="fabricGrid" width="10" height="10" patternUnits="userSpaceOnUse">';
+    html += '<path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2a4a" stroke-width="0.5"/>';
+    html += '</pattern></defs><rect width="100%" height="100%" fill="url(#fabricGrid)"/>';
+
+    // Fabric background
+    var totalH = 0;
+    var currentX = ox;
+    var currentY = oy;
+    var rowH = 0;
+    var placements = [];
+
+    pieces.forEach(function(p) {
+        var pw = (p.width || 30) * scale;
+        var ph = (p.height || 40) * scale;
+        for (var q = 0; q < (p.quantity || 1); q++) {
+            if (currentX + pw > ox + fabricW * scale) {
+                currentX = ox;
+                currentY += rowH + 5;
+                rowH = 0;
+            }
+            placements.push({ piece: p, x: currentX, y: currentY, w: pw, h: ph });
+            if (ph > rowH) rowH = ph;
+            currentX += pw + 5;
+        }
+    });
+
+    var totalHeight = currentY + rowH + oy;
+    svg.setAttribute('viewBox', '0 0 ' + svgW + ' ' + Math.max(totalHeight + 30, 400));
+
+    // Fabric rect
+    html += '<rect x="' + ox + '" y="' + oy + '" width="' + (fabricW * scale) + '" height="' + (totalHeight - oy + 10) + '" fill="rgba(255,255,255,0.02)" stroke="#444" stroke-width="1"/>';
+    html += '<text x="' + (ox + fabricW * scale / 2) + '" y="' + (oy - 8) + '" text-anchor="middle" fill="#888" font-size="11" font-family="sans-serif">Ткань: ' + fabricW + ' см</text>';
+
+    var colors = ['rgba(184,255,0,0.12)', 'rgba(74,158,255,0.12)', 'rgba(255,107,53,0.12)', 'rgba(255,74,110,0.12)', 'rgba(255,150,0,0.12)'];
+    var strokes = ['#b8ff00', '#4a9eff', '#ff6b35', '#ff4a6e', '#ff9600'];
+
+    placements.forEach(function(pl, i) {
+        var ci = i % colors.length;
+        html += '<rect x="' + pl.x + '" y="' + pl.y + '" width="' + pl.w + '" height="' + pl.h + '" fill="' + colors[ci] + '" stroke="' + strokes[ci] + '" stroke-width="1" rx="1"/>';
+        html += '<text x="' + (pl.x + pl.w/2) + '" y="' + (pl.y + pl.h/2 + 4) + '" text-anchor="middle" fill="' + strokes[ci] + '" font-size="8" font-family="sans-serif">' + (pl.piece.name || pl.piece.id) + '</text>';
+    });
+
+    svg.innerHTML = html;
+}
+
+function renderAiInstructions() {
+    var instructions = aiResult.instructions || [];
+    var html = '<div class="instructions-panel">';
+    instructions.forEach(function(inst) {
+        html += '<div class="step"><div class="step-title"><span class="step-num">' + inst.step + '</span> ' + inst.title + '</div>';
+        html += '<div class="step-text">' + inst.text.replace(/\n/g, '<br>') + '</div></div>';
+    });
+    if (!instructions.length) html += '<div class="step"><div class="step-text">Инструкции не были сгенерированы. Попробуйте ещё раз.</div></div>';
+    html += '</div>';
+    el('aiInstructionsArea').innerHTML = html;
+}
+
+function renderAiMaterials() {
+    var html = '';
+    var f = aiResult.fabric || {};
+    html += '<div class="panel" style="border:none;padding:0">';
+    html += '<h2 style="margin-top:0">Ткань</h2>';
+    html += '<div class="fabric-calc">';
+    html += '<div class="row"><span>Тип ткани</span><span class="val">' + (f.type || '—') + '</span></div>';
+    html += '<div class="row"><span>Ширина</span><span class="val">' + (f.widthCm || 150) + ' см</span></div>';
+    html += '<div class="row"><span>Расход</span><span class="val">' + ((f.lengthCm || 0) / 100).toFixed(1) + ' м</span></div>';
+    if (f.lining) html += '<div class="row"><span>Подкладка</span><span class="val">' + ((f.liningLengthCm || 0) / 100).toFixed(1) + ' м</span></div>';
+    html += '</div>';
+
+    var notions = aiResult.notions || [];
+    if (notions.length) {
+        html += '<h2 style="margin-top:15px">Фурнитура</h2>';
+        notions.forEach(function(n) {
+            html += '<div class="notion-item"><span>' + n.item + '</span><span style="color:#b8ff00">' + n.qty + '</span></div>';
+        });
+    }
+    html += '</div>';
+    el('aiMaterialsArea').innerHTML = html;
+}
+
+function updateAiSummary() {
+    var pieces = aiResult.pieces || [];
+    var html = '';
+    html += '<div class="row"><span>Тип изделия</span><span class="val">' + (aiResult.garmentType || '—') + '</span></div>';
+    html += '<div class="row"><span>Сложность</span><span class="val">' + (aiResult.difficulty || '—') + '</span></div>';
+    html += '<div class="row" style="border-top:1px solid #1a1a2e;padding-top:5px;margin-top:5px"><span><strong>Деталей кроя:</strong></span><span class="val">' + pieces.length + '</span></div>';
+    pieces.forEach(function(p) {
+        html += '<div class="row"><span>  ' + (p.name || p.id) + '</span><span class="val">' + p.quantity + ' шт.' + (p.cutOnFold ? ' (сгиб)' : '') + '</span></div>';
+        html += '<div class="row"><span>    размер</span><span class="val">' + (p.width || '?') + ' x ' + (p.height || '?') + ' см</span></div>';
+    });
+    if (aiResult.description) {
+        html += '<div class="row" style="border-top:1px solid #1a1a2e;padding-top:5px;margin-top:5px"><span style="color:#aaa;font-size:0.9em">' + aiResult.description + '</span></div>';
+    }
+    el('aiCutSummary').innerHTML = html;
+}
+
+
+/* ==================== CLASSIC MODE (unchanged logic) ==================== */
+var currentTab = 'main';
+var patternData = null;
+
+var classicPresets = {
+    S:  { waist: 64, hips: 92,  waistToHip: 19, waistToKnee: 57, skirtLength: 98,  knee: 36 },
+    M:  { waist: 70, hips: 96,  waistToHip: 20, waistToKnee: 58, skirtLength: 100, knee: 38 },
+    L:  { waist: 76, hips: 102, waistToHip: 20, waistToKnee: 58, skirtLength: 100, knee: 40 },
+    XL: { waist: 82, hips: 108, waistToHip: 21, waistToKnee: 60, skirtLength: 103, knee: 42 }
+};
+
+function switchTab(tab) {
+    currentTab = tab;
+    var tabEls = document.querySelectorAll('#classicMode .tabs .tab');
+    var tabNames = ['main', 'godet', 'waistband', 'all', 'instructions'];
+    for (var i = 0; i < tabEls.length; i++) tabEls[i].className = 'tab' + (tabNames[i] === tab ? ' active' : '');
+    if (tab === 'instructions') {
+        el('patternContent').style.display = 'none';
+        el('instructionsContent').style.display = 'block';
+        el('legend').style.display = 'none';
+        showInstructions();
+    } else {
+        el('patternContent').style.display = 'block';
+        el('instructionsContent').style.display = 'none';
+        el('legend').style.display = 'flex';
+        if (patternData) drawPattern();
+    }
+}
+
+function applyPreset() {
+    var s = el('sizePreset').value;
+    if (!s || !classicPresets[s]) return;
+    var p = classicPresets[s];
+    el('waist').value = p.waist; el('hips').value = p.hips; el('waistToHip').value = p.waistToHip;
+    el('waistToKnee').value = p.waistToKnee; el('skirtLength').value = p.skirtLength; el('knee').value = p.knee;
+    generatePattern();
+}
+
+function generatePattern() {
+    try {
+        var w = parseFloat(el('waist').value), h = parseFloat(el('hips').value);
+        var wth = parseFloat(el('waistToHip').value), wtk = parseFloat(el('waistToKnee').value);
+        var sl = parseFloat(el('skirtLength').value), kn = parseFloat(el('knee').value);
+        var gc = parseInt(el('godetCount').value), sa = parseFloat(el('seamAllowance').value);
+        var ha = parseFloat(el('hemAllowance').value), rise = el('rise').value;
+        var ra = rise === 'low' ? -5 : rise === 'high' ? 5 : 0;
+        patternData = {
+            waist: w, hips: h, waistToHip: wth + ra, waistToKnee: wtk, skirtLength: sl,
+            knee: kn, godetCount: gc, panelCount: gc, seamAllowance: sa, hemAllowance: ha,
+            waistPerPanel: w/gc, hipPerPanel: h/gc, kneePerPanel: kn/gc, panelKneeWidth: kn/gc,
+            flareLength: sl - wtk, godetBottomWidth: (Math.PI*2*(sl-wtk)*0.7)/gc
+        };
+        drawPattern(); updateFabricCalc(); updateCutSummary();
+    } catch(e) { console.error(e); }
+}
+
+function drawPattern() { if (!patternData) return; var d = patternData;
+    switch(currentTab) { case 'main': drawMainPanel(d); break; case 'godet': drawGodet(d); break; case 'waistband': drawWaistband(d); break; case 'all': drawClassicLayout(d); break; }
+}
+
+function addDim(h, x1, y1, x2, y2, t) {
+    var mx = (x1+x2)/2;
+    h += '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="#888" stroke-width="0.8"/>';
+    h += '<line x1="'+x1+'" y1="'+(y1-4)+'" x2="'+x1+'" y2="'+(y1+4)+'" stroke="#888" stroke-width="0.8"/>';
+    h += '<line x1="'+x2+'" y1="'+(y2-4)+'" x2="'+x2+'" y2="'+(y2+4)+'" stroke="#888" stroke-width="0.8"/>';
+    h += '<text x="'+mx+'" y="'+(y1-4)+'" text-anchor="middle" fill="#ddd" font-size="10" font-family="sans-serif">'+t+' см</text>';
+    return h;
+}
+function addVDim(h, x1, y1, x2, y2, t) {
+    var my = (y1+y2)/2;
+    h += '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="#888" stroke-width="0.8"/>';
+    h += '<line x1="'+(x1-4)+'" y1="'+y1+'" x2="'+(x1+4)+'" y2="'+y1+'" stroke="#888" stroke-width="0.8"/>';
+    h += '<line x1="'+(x2-4)+'" y1="'+y2+'" x2="'+(x2+4)+'" y2="'+y2+'" stroke="#888" stroke-width="0.8"/>';
+    h += '<text x="'+x1+'" y="'+my+'" text-anchor="middle" fill="#ddd" font-size="10" font-family="sans-serif" transform="rotate(-90,'+x1+','+my+')">'+t+' см</text>';
+    return h;
+}
+
+function drawMainPanel(d) {
+    var svg = el('patternSVG'), s = 5.5, ox = 120, oy = 60;
+    var pH = d.skirtLength*s, wW = d.waistPerPanel*s, hW = d.hipPerPanel*s, kW = d.panelKneeWidth*s;
+    var hY = d.waistToHip*s, kY = d.waistToKnee*s, sa = d.seamAllowance*s;
+    svg.setAttribute('viewBox', '0 0 '+Math.max(hW+300,800)+' '+(pH+150));
+    var hw = wW/2, hh = hW/2, hk = kW/2, cx = ox+hW/2, h = '';
+    h += '<defs><pattern id="g" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2a4a" stroke-width="0.5"/></pattern></defs><rect width="100%" height="100%" fill="url(#g)"/>';
+    // SA
+    h += '<polygon points="'+(cx-hw-sa)+','+(oy-sa)+' '+(cx+hw+sa)+','+(oy-sa)+' '+(cx+hh+sa)+','+(oy+hY)+' '+(cx+hk+sa)+','+(oy+kY)+' '+(cx+hk+sa)+','+(oy+pH+d.hemAllowance*s)+' '+(cx-hk-sa)+','+(oy+pH+d.hemAllowance*s)+' '+(cx-hk-sa)+','+(oy+kY)+' '+(cx-hh-sa)+','+(oy+hY)+'" fill="none" stroke="#ff6b35" stroke-width="1" stroke-dasharray="6,4" opacity="0.6"/>';
+    // Shape
+    h += '<path d="M '+(cx-hw)+' '+oy+' L '+(cx+hw)+' '+oy+' C '+(cx+hw)+' '+(oy+hY*.3)+', '+(cx+hh)+' '+(oy+hY*.7)+', '+(cx+hh)+' '+(oy+hY)+' C '+(cx+hh)+' '+(oy+hY+(kY-hY)*.3)+', '+(cx+hk)+' '+(oy+kY-(kY-hY)*.2)+', '+(cx+hk)+' '+(oy+kY)+' L '+(cx+hk)+' '+(oy+pH)+' L '+(cx-hk)+' '+(oy+pH)+' L '+(cx-hk)+' '+(oy+kY)+' C '+(cx-hk)+' '+(oy+kY-(kY-hY)*.2)+', '+(cx-hh)+' '+(oy+hY+(kY-hY)*.3)+', '+(cx-hh)+' '+(oy+hY)+' C '+(cx-hh)+' '+(oy+hY*.7)+', '+(cx-hw)+' '+(oy+hY*.3)+', '+(cx-hw)+' '+oy+' Z" fill="rgba(184,255,0,0.05)" stroke="#b8ff00" stroke-width="2"/>';
+    // Lines
+    [[oy,'Талия'],[oy+hY,'Бёдра'],[oy+kY,'Колено'],[oy+pH,'Низ']].forEach(function(l){h+='<line x1="'+(cx-hh-40)+'" y1="'+l[0]+'" x2="'+(cx+hh+40)+'" y2="'+l[0]+'" stroke="#4a9eff" stroke-width="0.8" stroke-dasharray="4,4"/>';h+='<text x="'+(cx+hh+50)+'" y="'+(l[0]+4)+'" fill="#4a9eff" font-size="11" font-family="sans-serif">'+l[1]+'</text>';});
+    // Grain
+    h += '<line x1="'+cx+'" y1="'+(oy-15)+'" x2="'+cx+'" y2="'+(oy+pH+15)+'" stroke="#ff4a6e" stroke-width="1.2" stroke-dasharray="8,4"/>';
+    // Dims
+    h = addDim(h,cx-hw,oy-25,cx+hw,oy-25,d.waistPerPanel.toFixed(1));
+    h = addDim(h,cx-hh,oy+hY-15,cx+hh,oy+hY-15,d.hipPerPanel.toFixed(1));
+    h = addVDim(h,cx-hh-55,oy,cx-hh-55,oy+pH,d.skirtLength.toFixed(1));
+    h += '<text x="'+cx+'" y="'+(oy+pH/2)+'" text-anchor="middle" fill="rgba(184,255,0,0.3)" font-size="14" font-weight="bold" font-family="sans-serif">ПАНЕЛЬ ЮБКИ</text>';
+    h += '<text x="'+cx+'" y="'+(oy+pH/2+18)+'" text-anchor="middle" fill="rgba(184,255,0,0.2)" font-size="11" font-family="sans-serif">'+d.panelCount+' шт.</text>';
+    svg.innerHTML = h;
+}
+
+function drawGodet(d) {
+    var svg=el('patternSVG'), s=5, ox=420, oy=90;
+    var h_=d.flareLength*s, w_=d.godetBottomWidth*s, hw=w_/2;
+    var sa=d.seamAllowance*s, ha=d.hemAllowance*s;
+    svg.setAttribute('viewBox','0 0 '+Math.max(w_+350,800)+' '+(h_+270));
+    var h='<defs><pattern id="g2" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2a4a" stroke-width="0.5"/></pattern></defs><rect width="100%" height="100%" fill="url(#g2)"/>';
+    // Припуски (оранжевый пунктир) — расширенный треугольник
+    var saHw=hw+sa;
+    h+='<polygon points="'+ox+','+(oy-sa)+' '+(ox+saHw)+','+(oy+h_+ha)+' '+(ox-saHw)+','+(oy+h_+ha)+'" fill="none" stroke="#ff6b35" stroke-width="1" stroke-dasharray="6,4" opacity="0.8"/>';
+    // Линия кроя (зелёная)
+    h+='<path d="M '+ox+' '+oy+' C '+ox+' '+(oy+h_*.4)+', '+(ox+hw)+' '+(oy+h_*.6)+', '+(ox+hw)+' '+(oy+h_)+' L '+(ox-hw)+' '+(oy+h_)+' C '+(ox-hw)+' '+(oy+h_*.6)+', '+ox+' '+(oy+h_*.4)+', '+ox+' '+oy+' Z" fill="rgba(184,255,0,0.05)" stroke="#b8ff00" stroke-width="2"/>';
+    // Долевая (красный пунктир, вертикаль)
+    h+='<line x1="'+ox+'" y1="'+(oy-15)+'" x2="'+ox+'" y2="'+(oy+h_+15)+'" stroke="#ff4a6e" stroke-width="1.2" stroke-dasharray="8,4"/>';
+    h+='<polygon points="'+(ox-3)+','+(oy-10)+' '+(ox+3)+','+(oy-10)+' '+ox+','+(oy-16)+'" fill="#ff4a6e"/>';
+    h+='<polygon points="'+(ox-3)+','+(oy+h_+10)+' '+(ox+3)+','+(oy+h_+10)+' '+ox+','+(oy+h_+16)+'" fill="#ff4a6e"/>';
+    // Разметка (синий пунктир): линия вставки (верх) и линия низа
+    h+='<line x1="'+(ox-50)+'" y1="'+oy+'" x2="'+(ox+50)+'" y2="'+oy+'" stroke="#4a9eff" stroke-width="0.9" stroke-dasharray="5,3"/>';
+    h+='<text x="'+(ox+60)+'" y="'+(oy+4)+'" fill="#4a9eff" font-size="11" font-family="sans-serif">Точка вставки</text>';
+    h+='<line x1="'+(ox-hw-20)+'" y1="'+(oy+h_)+'" x2="'+(ox+hw+20)+'" y2="'+(oy+h_)+'" stroke="#4a9eff" stroke-width="0.9" stroke-dasharray="5,3"/>';
+    h+='<text x="'+(ox+hw+25)+'" y="'+(oy+h_+4)+'" fill="#4a9eff" font-size="11" font-family="sans-serif">Низ</text>';
+    // Точка вершины
+    h+='<circle cx="'+ox+'" cy="'+oy+'" r="4" fill="#b8ff00"/>';
+    // Размеры
+    h=addDim(h,ox-hw,oy+h_+45,ox+hw,oy+h_+45,d.godetBottomWidth.toFixed(1));
+    h=addVDim(h,ox-hw-55,oy,ox-hw-55,oy+h_,d.flareLength.toFixed(1));
+    h+='<text x="'+ox+'" y="'+(oy+h_*.52)+'" text-anchor="middle" fill="rgba(184,255,0,0.3)" font-size="16" font-weight="bold" font-family="sans-serif">КЛИН ГОДЕ</text>';
+    h+='<text x="'+ox+'" y="'+(oy+h_*.52+20)+'" text-anchor="middle" fill="rgba(184,255,0,0.2)" font-size="12" font-family="sans-serif">'+d.godetCount+' шт.</text>';
+    svg.innerHTML=h;
+}
+
+function drawWaistband(d) {
+    var svg=el('patternSVG'), s=5, wbW=4;
+    var sa=d.seamAllowance, tw=(wbW*2+sa*2), len=d.waist+3;
+    var w=len*s, h_=tw*s, ox=90, oy=200;
+    var saS=sa*s;
+    svg.setAttribute('viewBox','0 0 '+Math.max(w+220,800)+' 520');
+    var h='<defs><pattern id="g3" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2a4a" stroke-width="0.5"/></pattern></defs><rect width="100%" height="100%" fill="url(#g3)"/>';
+    // Припуски (оранжевый пунктир) — расширенный прямоугольник
+    h+='<rect x="'+(ox-saS)+'" y="'+(oy-saS)+'" width="'+(w+saS*2)+'" height="'+(h_+saS*2)+'" fill="none" stroke="#ff6b35" stroke-width="1" stroke-dasharray="6,4" opacity="0.8" rx="2"/>';
+    // Линия кроя (зелёная)
+    h+='<rect x="'+ox+'" y="'+oy+'" width="'+w+'" height="'+h_+'" fill="rgba(184,255,0,0.05)" stroke="#b8ff00" stroke-width="2" rx="2"/>';
+    // Разметка (синий пунктир): линия сгиба по центру
+    h+='<line x1="'+ox+'" y1="'+(oy+h_/2)+'" x2="'+(ox+w)+'" y2="'+(oy+h_/2)+'" stroke="#4a9eff" stroke-width="1" stroke-dasharray="8,4"/>';
+    h+='<text x="'+(ox+w+10)+'" y="'+(oy+h_/2+4)+'" fill="#4a9eff" font-size="11" font-family="sans-serif">Сгиб</text>';
+    // Разметка: линии примётки молнии
+    h+='<line x1="'+(ox+w-saS*4)+'" y1="'+oy+'" x2="'+(ox+w-saS*4)+'" y2="'+(oy+h_)+'" stroke="#4a9eff" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.6"/>';
+    h+='<text x="'+(ox+w-saS*4)+'" y="'+(oy-8)+'" text-anchor="middle" fill="#4a9eff" font-size="9" font-family="sans-serif">молния</text>';
+    // Долевая (красный пунктир, горизонталь)
+    var glY=oy+h_*0.2;
+    h+='<line x1="'+(ox+15)+'" y1="'+glY+'" x2="'+(ox+w-15)+'" y2="'+glY+'" stroke="#ff4a6e" stroke-width="1.2" stroke-dasharray="8,4"/>';
+    h+='<polygon points="'+(ox+15)+','+(glY-3)+' '+(ox+15)+','+(glY+3)+' '+(ox+10)+','+glY+'" fill="#ff4a6e"/>';
+    h+='<polygon points="'+(ox+w-15)+','+(glY-3)+' '+(ox+w-15)+','+(glY+3)+' '+(ox+w-10)+','+glY+'" fill="#ff4a6e"/>';
+    h+='<text x="'+(ox+w/2)+'" y="'+(glY-5)+'" text-anchor="middle" fill="#ff4a6e" font-size="9" font-family="sans-serif">долевая</text>';
+    // Размеры
+    h=addDim(h,ox,oy-40,ox+w,oy-40,len.toFixed(1));
+    h=addVDim(h,ox-45,oy,ox-45,oy+h_,tw.toFixed(1));
+    // Подпись
+    h+='<text x="'+(ox+w/2)+'" y="'+(oy+h_/2-12)+'" text-anchor="middle" fill="rgba(184,255,0,0.3)" font-size="14" font-weight="bold" font-family="sans-serif">ПОЯС</text>';
+    h+='<text x="'+(ox+w/2)+'" y="'+(oy+h_/2+10)+'" text-anchor="middle" fill="rgba(184,255,0,0.2)" font-size="10" font-family="sans-serif">готовый '+wbW*2+' см | на кройку: '+tw.toFixed(1)+' см</text>';
+    svg.innerHTML=h;
+}
+
+function drawClassicLayout(d) {
+    var svg=el('patternSVG'),s=2.2,fW=150*s,ox=50,oy=40;
+    svg.setAttribute('viewBox','0 0 900 800');
+    var h='<defs><pattern id="g4" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="#1a2a4a" stroke-width="0.5"/></pattern></defs><rect width="100%" height="100%" fill="url(#g4)"/>';
+    h+='<rect x="'+ox+'" y="'+oy+'" width="'+fW+'" height="700" fill="rgba(255,255,255,0.02)" stroke="#444" stroke-width="1"/>';
+    var pH=d.skirtLength*s,pW=d.hipPerPanel*s,gH=d.flareLength*s,gW=d.godetBottomWidth*s;
+    var ppr=Math.max(1,Math.floor((fW-10)/(pW+5))),px=ox+5,py=oy+5;
+    for(var i=0;i<d.panelCount;i++){var c=i%ppr,r=Math.floor(i/ppr),x=px+c*(pW+5),y=py+r*(pH+10);
+        h+='<rect x="'+x+'" y="'+y+'" width="'+pW+'" height="'+pH+'" fill="rgba(184,255,0,0.1)" stroke="#b8ff00" stroke-width="1" rx="1"/>';
+        h+='<text x="'+(x+pW/2)+'" y="'+(y+pH/2)+'" text-anchor="middle" fill="rgba(184,255,0,0.5)" font-size="9" font-family="sans-serif">П'+(i+1)+'</text>';}
+    var gsy=py+Math.ceil(d.panelCount/ppr)*(pH+10),gpr=Math.max(1,Math.floor((fW-10)/(gW/2+5)));
+    for(var i=0;i<d.godetCount;i++){var c=i%gpr,r=Math.floor(i/gpr),x=px+c*(gW/2+5)+gW/4,y=gsy+r*(gH+10);
+        h+='<path d="M '+x+' '+y+' L '+(x+gW/3)+' '+(y+gH)+' L '+(x-gW/3)+' '+(y+gH)+' Z" fill="rgba(255,150,0,0.1)" stroke="#ff9600" stroke-width="1"/>';}
+    svg.innerHTML=h;
+}
+
+function updateFabricCalc() {
+    var d=patternData, fW=150, sa=d.seamAllowance, ha=d.hemAllowance;
+    // Панели: ширина = ширина бёдер/панель + sa*2, высота = длина + sa(верх) + sa+ha(низ)
+    var panelCutW = d.hipPerPanel + sa*2;
+    var panelCutH = d.skirtLength + sa*2 + ha;
+    var ppr = Math.max(1, Math.floor(fW / (panelCutW + 2)));
+    var pr = Math.ceil(d.panelCount / ppr);
+    var pF = pr * (panelCutH + 2);
+    // Клинья: ширина = половина основания + sa*2, высота = высота + sa+ha
+    var godetCutW = d.godetBottomWidth/2 + sa*2;
+    var godetCutH = d.flareLength + sa + ha;
+    var gpr = Math.max(1, Math.floor(fW / (godetCutW + 2)));
+    var gr = Math.ceil(d.godetCount / gpr);
+    var gF = gr * (godetCutH + 2);
+    // Пояс: длина = талия+3+sa*2, высота = ширина пояса*2+sa*2
+    var wbCutLen = d.waist + 3 + sa*2;
+    var wbCutH = 4*2 + sa*2;
+    var wbRows = Math.ceil(wbCutLen / fW);
+    var wbF = wbRows * (wbCutH + 2);
+    var t = pF + gF + wbF;
+    el('fabricCalc').innerHTML =
+        '<div class="row" style="font-weight:bold;padding-bottom:2px"><span>Деталь</span><span>Расход</span></div>' +
+        '<div class="row"><span>Панели ('+d.panelCount+' шт.)</span></div>' +
+        '<div class="row" style="color:#aaa;font-size:0.82em"><span>&nbsp;&nbsp;'+panelCutW.toFixed(1)+'×'+panelCutH.toFixed(1)+' см × '+d.panelCount+' шт.</span><span class="val">'+pF.toFixed(0)+' см</span></div>' +
+        '<div class="row"><span>Клинья годе ('+d.godetCount+' шт.)</span></div>' +
+        '<div class="row" style="color:#aaa;font-size:0.82em"><span>&nbsp;&nbsp;'+godetCutW.toFixed(1)+'×'+godetCutH.toFixed(1)+' см × '+d.godetCount+' шт.</span><span class="val">'+gF.toFixed(0)+' см</span></div>' +
+        '<div class="row"><span>Пояс (1 шт.)</span></div>' +
+        '<div class="row" style="color:#aaa;font-size:0.82em"><span>&nbsp;&nbsp;'+wbCutLen.toFixed(1)+'×'+wbCutH.toFixed(1)+' см</span><span class="val">'+wbF.toFixed(0)+' см</span></div>' +
+        '<div class="row" style="border-top:1px solid #4a8a4a;margin-top:6px;padding-top:6px"><span><strong>Итого (ткань 150 см):</strong></span><span class="val" style="font-size:1.15em">'+(t/100).toFixed(2)+' м</span></div>' +
+        '<div class="row"><span style="color:#aaffaa">с запасом 10%</span><span class="val">'+(t*1.1/100).toFixed(2)+' м</span></div>' +
+        '<div class="row" style="font-size:0.78em;color:#666;margin-top:4px"><span>* припуски '+sa+' см + подгиб '+ha+' см учтены</span></div>';
+}
+
+function updateCutSummary() {
+    var d=patternData, fW=150, sa=d.seamAllowance, ha=d.hemAllowance;
+    var panelCutW=d.hipPerPanel+sa*2, panelCutH=d.skirtLength+sa*2+ha;
+    var ppr=Math.max(1,Math.floor(fW/(panelCutW+2)));
+    var pF=Math.ceil(d.panelCount/ppr)*(panelCutH+2);
+    var godetCutW=d.godetBottomWidth/2+sa*2, godetCutH=d.flareLength+sa+ha;
+    var gpr=Math.max(1,Math.floor(fW/(godetCutW+2)));
+    var gF=Math.ceil(d.godetCount/gpr)*(godetCutH+2);
+    var wbCutLen=d.waist+3+sa*2, wbCutH=4*2+sa*2;
+    var wbF=Math.ceil(wbCutLen/fW)*(wbCutH+2);
+    var total=pF+gF+wbF;
+    el('cutSummary').innerHTML=
+        '<div class="row"><span><b>Панель</b></span><span class="val">'+d.panelCount+' шт.</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;талия (без припусков)</span><span class="val">'+d.waistPerPanel.toFixed(1)+' см</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;бёдра (без припусков)</span><span class="val">'+d.hipPerPanel.toFixed(1)+' см</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;длина (без подгиба)</span><span class="val">'+d.skirtLength.toFixed(1)+' см</span></div>'+
+        '<div class="row" style="color:#aaa;font-size:0.82em"><span>&nbsp;&nbsp;на кройку: '+panelCutW.toFixed(1)+'×'+panelCutH.toFixed(1)+' см</span></div>'+
+        '<div class="row" style="margin-top:6px"><span><b>Клин годе</b></span><span class="val">'+d.godetCount+' шт.</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;ширина основания</span><span class="val">'+d.godetBottomWidth.toFixed(1)+' см</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;высота</span><span class="val">'+d.flareLength.toFixed(1)+' см</span></div>'+
+        '<div class="row" style="color:#aaa;font-size:0.82em"><span>&nbsp;&nbsp;на кройку: '+godetCutW.toFixed(1)+'×'+godetCutH.toFixed(1)+' см</span></div>'+
+        '<div class="row" style="margin-top:6px"><span><b>Пояс</b></span><span class="val">1 шт.</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;длина</span><span class="val">'+(d.waist+3).toFixed(1)+' см</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;ширина готового</span><span class="val">8 см (4×2)</span></div>'+
+        '<div class="row" style="color:#aaa;font-size:0.82em"><span>&nbsp;&nbsp;на кройку: '+wbCutLen.toFixed(1)+'×'+wbCutH.toFixed(1)+' см</span></div>'+
+        '<div class="row" style="border-top:1px solid #2a5a8a;margin-top:8px;padding-top:8px"><span><b>Расход ткани (150 см):</b></span><span class="val" style="color:#b8ff00;font-size:1.1em">'+(total/100).toFixed(2)+' м</span></div>'+
+        '<div class="row"><span>&nbsp;&nbsp;с запасом 10%</span><span class="val">'+(total*1.1/100).toFixed(2)+' м</span></div>';
+}
+
+function showInstructions() {
+    var d=patternData||{},pc=d.panelCount||8,gc=d.godetCount||8,sa=d.seamAllowance||1.5,ha=d.hemAllowance||2;
+    var steps=[
+        ['Раскрой','Вырежьте '+pc+' панелей, '+gc+' клиньев годе, 1 пояс. Припуски '+sa+' см, подгиб '+ha+' см.'],
+        ['Стачивание панелей','Сшейте панели от талии до колена. В точке годе — закрепка. Ниже не зашивать. Задний шов оставить для молнии.'],
+        ['Клинья годе','Вставьте клинья: верхняя точка совпадает с концом бокового шва. Шейте от точки вниз. Припуски к панелям.'],
+        ['Молния','Задний шов + потайная молния 20-22 см от верха.'],
+        ['Пояс','Флизелин на половину. Притачать, подвернуть, пришить. Крючок и петля.'],
+        ['Низ','Подгиб '+ha+' см. Регилин для пышности (как на фото). Или леска в подгиб.'],
+        ['Финал','Обметать припуски. Отутюжить. Примерка.']
+    ];
+    var h='<div class="instructions-panel">';
+    steps.forEach(function(s,i){h+='<div class="step"><div class="step-title"><span class="step-num">'+(i+1)+'</span> '+s[0]+'</div><div class="step-text">'+s[1]+'</div></div>';});
+    h+='</div>';
+    el('instructionsContent').innerHTML=h;
+}
+
+
+/* ==================== INIT ==================== */
+(function init() {
+    loadApiKey();
+    setupUpload();
+    switchMode('ai');
+    el('godetCount').addEventListener('input', function() { el('godetCountDisplay').textContent = this.value; });
+    ['waist','hips','waistToHip','waistToKnee','skirtLength','knee'].forEach(function(id) {
+        if (el(id)) el(id).addEventListener('input', function() { el('sizePreset').value = ''; });
+    });
+})();
+</script>
+</body>
+</html>
