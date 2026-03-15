@@ -188,13 +188,22 @@
                         <div style="font-size:0.8em;color:#888;margin-bottom:6px;cursor:pointer" onclick="el('braveSection').style.display=el('braveSection').style.display==='none'?'block':'none'">&#128269; Веб-поиск (опционально) ▾</div>
                         <div id="braveSection" style="display:none">
                             <div class="input-group" style="margin-bottom:4px">
-                                <label>Brave Search API Key</label>
+                                <label>Google API Key</label>
                                 <div class="api-key-row">
-                                    <input type="password" id="braveApiKey" placeholder="BSA...">
+                                    <input type="password" id="braveApiKey" placeholder="AIzaSy...">
                                     <button onclick="saveBraveKey()">Сохранить</button>
                                 </div>
                                 <div class="api-status" id="braveKeyStatus"></div>
-                                <div style="font-size:0.76em;color:#666;margin-top:3px">api.search.brave.com — 2000 запросов/мес бесплатно</div>
+                                <div style="font-size:0.76em;color:#666;margin-top:3px">console.cloud.google.com → Custom Search API</div>
+                            </div>
+                            <div class="input-group" style="margin-bottom:4px">
+                                <label>Search Engine ID (CX)</label>
+                                <div class="api-key-row">
+                                    <input type="text" id="googleCxId" placeholder="017576662512468239146:omuauf_lfve">
+                                    <button onclick="saveGoogleCx()">Сохранить</button>
+                                </div>
+                                <div class="api-status" id="googleCxStatus"></div>
+                                <div style="font-size:0.76em;color:#666;margin-top:3px">programmablesearchengine.google.com → Создать поисковик</div>
                             </div>
                         </div>
                     </div>
@@ -1155,8 +1164,8 @@ function renderValidationTab() {
         if (libInfo) {
             html += '<div class="val-item ok" style="margin-bottom:8px"><span class="val-icon">📚</span><span>Тип изделия найден в библиотеке: <strong>' + libInfo.label + '</strong></span></div>';
         }
-        var hasBrave = !!localStorage.getItem('patternBraveKey');
-        html += '<div style="color:#888;font-size:0.84em;margin-bottom:8px">Исследование добавит справочные данные о конструкции, формулы расчёта и типичные ошибки.' + (hasBrave ? ' Веб-поиск активен.' : ' <span style="color:#666">Добавьте Brave API для веб-поиска.</span>') + '</div>';
+        var hasBrave = !!(localStorage.getItem('patternBraveKey') && localStorage.getItem('patternGoogleCx'));
+        html += '<div style="color:#888;font-size:0.84em;margin-bottom:8px">Исследование добавит справочные данные о конструкции, формулы расчёта и типичные ошибки.' + (hasBrave ? ' Веб-поиск активен.' : ' <span style="color:#666">Добавьте Google Search API для веб-поиска.</span>') + '</div>';
         html += '<button class="primary" id="researchBtn" onclick="runResearch()" style="margin-top:0">Исследовать конструкцию</button>';
         html += '<div id="researchStatusMsg" style="display:none;color:#b8ff00;font-size:0.84em;margin-top:8px"></div>';
     }
@@ -1334,13 +1343,21 @@ function findGarmentType(garmentTypeStr) {
     return null;
 }
 
-// ---- Brave Search API ----
+// ---- Google Custom Search API ----
 function saveBraveKey() {
     var key = el('braveApiKey').value.trim();
     if (key) {
         localStorage.setItem('patternBraveKey', key);
         el('braveKeyStatus').textContent = 'Ключ сохранён';
         el('braveKeyStatus').className = 'api-status ok';
+    }
+}
+function saveGoogleCx() {
+    var cx = el('googleCxId').value.trim();
+    if (cx) {
+        localStorage.setItem('patternGoogleCx', cx);
+        el('googleCxStatus').textContent = 'CX сохранён';
+        el('googleCxStatus').className = 'api-status ok';
     }
 }
 function loadBraveKey() {
@@ -1351,20 +1368,30 @@ function loadBraveKey() {
         el('braveKeyStatus').className = 'api-status ok';
         el('braveSection').style.display = 'block';
     }
+    var cx = localStorage.getItem('patternGoogleCx');
+    if (cx) {
+        el('googleCxId').value = cx;
+        el('googleCxStatus').textContent = 'CX загружен';
+        el('googleCxStatus').className = 'api-status ok';
+    }
 }
 
 function searchBrave(query) {
     var key = localStorage.getItem('patternBraveKey');
-    if (!key) return Promise.resolve([]);
-    var url = 'https://api.search.brave.com/res/v1/web/search?q=' + encodeURIComponent(query) + '&count=5&search_lang=ru';
-    return fetch(url, { headers: { 'X-Subscription-Token': key, 'Accept': 'application/json' } })
-    .then(function(r) { return r.ok ? r.json() : Promise.reject('Brave: HTTP ' + r.status); })
+    var cx = localStorage.getItem('patternGoogleCx');
+    if (!key || !cx) return Promise.resolve([]);
+    var url = 'https://www.googleapis.com/customsearch/v1?key=' + encodeURIComponent(key) +
+              '&cx=' + encodeURIComponent(cx) +
+              '&q=' + encodeURIComponent(query) +
+              '&num=5&lr=lang_ru';
+    return fetch(url)
+    .then(function(r) { return r.ok ? r.json() : Promise.reject('Google: HTTP ' + r.status); })
     .then(function(data) {
-        var results = (data.web && data.web.results) || [];
-        return results.map(function(r) { return { title: r.title, snippet: r.description || '', url: r.url }; });
+        var items = data.items || [];
+        return items.map(function(r) { return { title: r.title, snippet: r.snippet || '', url: r.link }; });
     })
     .catch(function(e) {
-        console.warn('Brave search error:', e);
+        console.warn('Google search error:', e);
         return [];
     });
 }
@@ -1385,7 +1412,7 @@ function runResearch() {
     el('researchStatusMsg').textContent = 'Поиск информации о конструкции...';
     el('researchStatusMsg').style.display = 'block';
 
-    var hasBrave = !!localStorage.getItem('patternBraveKey');
+    var hasBrave = !!(localStorage.getItem('patternBraveKey') && localStorage.getItem('patternGoogleCx'));
     var searchQuery = gt + ' выкройка конструкция пошив';
 
     // Run web search + AI research in parallel
