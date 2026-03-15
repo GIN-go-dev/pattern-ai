@@ -129,6 +129,14 @@
         .val-correction .field { color: #4a9eff; font-weight: bold; }
         .val-correction .arrow { color: #b8ff00; margin: 0 5px; }
         .lessons-info { background: #1a1a2e; border-radius: 6px; padding: 8px 12px; font-size: 0.78em; color: #666; margin-top: 10px; }
+        /* Research */
+        .research-source { background: #0f3460; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 0.82em; border-left: 3px solid #4a9eff; }
+        .research-source .src-title { color: #4a9eff; font-weight: bold; font-size: 0.9em; }
+        .research-source .src-text { color: #bbb; margin-top: 3px; line-height: 1.4; }
+        .lib-card { background: #0f2040; border: 1px solid #1a4a6a; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+        .lib-card h4 { color: #4a9eff; margin-bottom: 8px; font-size: 0.9em; }
+        .lib-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.76em; background: #1a3a5a; color: #88bbff; margin: 2px; }
+        .lib-tag.warn { background: #3d2e00; color: #ffcc44; }
         @media print {
             body { background: white; color: black; }
             .panel { border: 1px solid #ccc; background: white; }
@@ -169,6 +177,20 @@
                         </div>
                         <div class="api-status" id="aiApiStatus"></div>
                         <div id="apiKeyHint" style="font-size:0.78em;color:#666;margin-top:3px">aistudio.google.com/apikey</div>
+                    </div>
+                    <div style="border-top:1px solid #2a2a4a;margin-top:10px;padding-top:10px">
+                        <div style="font-size:0.8em;color:#888;margin-bottom:6px;cursor:pointer" onclick="el('braveSection').style.display=el('braveSection').style.display==='none'?'block':'none'">&#128269; Веб-поиск (опционально) ▾</div>
+                        <div id="braveSection" style="display:none">
+                            <div class="input-group" style="margin-bottom:4px">
+                                <label>Brave Search API Key</label>
+                                <div class="api-key-row">
+                                    <input type="password" id="braveApiKey" placeholder="BSA...">
+                                    <button onclick="saveBraveKey()">Сохранить</button>
+                                </div>
+                                <div class="api-status" id="braveKeyStatus"></div>
+                                <div style="font-size:0.76em;color:#666;margin-top:3px">api.search.brave.com — 2000 запросов/мес бесплатно</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1038,11 +1060,31 @@ function renderValidationTab() {
         }
         // Lessons saved info
         var lessons = JSON.parse(localStorage.getItem('patternLessons') || '[]');
-        html += '<div class="lessons-info">База знаний: ' + lessons.length + ' урок(ов) накоплено. Используются в следующих запросах.</div>';
+        html += '<div class="lessons-info">База знаний: ' + lessons.length + ' урок(ов). Учитываются в следующих запросах.</div>';
     } else {
         html += '<div style="color:#888;font-size:0.86em;margin-bottom:10px">Детальная проверка конструкции на ошибки, несоответствия размеров и рекомендации по исправлению.</div>';
         html += '<button class="primary" id="btnSeamstress" onclick="runSeamstressAgent()" style="margin-top:0">Проверить у швеи</button>';
         html += '<div class="error-box" id="seamstressError" style="display:none"></div>';
+    }
+    html += '</div>';
+
+    // ---- Research section ----
+    html += '<div class="val-section" style="margin-top:16px"><h3>База знаний и исследование</h3>';
+    var savedResearch = researchContext || (aiResult && JSON.parse(localStorage.getItem('patternResearch_' + (aiResult.garmentType||'')) || 'null'));
+    if (savedResearch && !researchContext) researchContext = savedResearch;
+
+    if (researchContext) {
+        html += renderResearchSection();
+        html += '<button class="secondary" id="refineBtn" onclick="refineWithResearch()" style="margin-top:8px">↻ Уточнить выкройку с этими данными</button>';
+    } else {
+        var libInfo = aiResult ? findGarmentType(aiResult.garmentType) : null;
+        if (libInfo) {
+            html += '<div class="val-item ok" style="margin-bottom:8px"><span class="val-icon">📚</span><span>Тип изделия найден в библиотеке: <strong>' + libInfo.label + '</strong></span></div>';
+        }
+        var hasBrave = !!localStorage.getItem('patternBraveKey');
+        html += '<div style="color:#888;font-size:0.84em;margin-bottom:8px">Исследование добавит справочные данные о конструкции, формулы расчёта и типичные ошибки.' + (hasBrave ? ' Веб-поиск активен.' : ' <span style="color:#666">Добавьте Brave API для веб-поиска.</span>') + '</div>';
+        html += '<button class="primary" id="researchBtn" onclick="runResearch()" style="margin-top:0">Исследовать конструкцию</button>';
+        html += '<div id="researchStatusMsg" style="display:none;color:#b8ff00;font-size:0.84em;margin-top:8px"></div>';
     }
     html += '</div>';
 
@@ -1137,6 +1179,304 @@ function buildLessonContext() {
         recent.map(function(l) {
             return '- ' + l.garmentType + ': ' + (l.issues||[]).map(function(i){ return i.desc; }).join('; ');
         }).join('\n');
+}
+
+
+/* ==================== PHASE 2: KNOWLEDGE BASE & WEB SEARCH ==================== */
+
+// ---- Built-in garment library ----
+var garmentLibrary = {
+    'платье': {
+        label: 'Платье', icon: '👗',
+        pieces: ['Полочка', 'Спинка', 'Рукав', 'Воротник/горловина', 'Пояс (при необходимости)'],
+        ease: { bust: '+4–6 см', waist: '+2–4 см', hips: '+4–6 см' },
+        notes: 'Вытачки на талии — обязательны для облегающего силуэта. Пройма должна быть не менее 18 см по длине. Ширина полочки = (Обхват груди / 2) + прибавка.',
+        mistakes: ['Слишком маленькая пройма', 'Неверный наклон плеча', 'Нет вытачек на талии', 'Горловина не соответствует обхвату головы'],
+        fabric: { min: 200, typical: '250–350 см при ширине 150 см' }
+    },
+    'юбка': {
+        label: 'Юбка', icon: '👘',
+        pieces: ['Переднее полотнище', 'Заднее полотнище', 'Пояс'],
+        ease: { waist: '+1–2 см', hips: '+2–4 см' },
+        notes: 'Для прямой юбки: ширина по низу ≥ обхват бёдер + 4 см. Молния в боковом или заднем шве. Пояс = талия + 3 см.',
+        mistakes: ['Ширина по низу меньше бёдер', 'Нет припуска на молнию', 'Неверное соотношение талия/бёдра'],
+        fabric: { min: 100, typical: '100–150 см' }
+    },
+    'брюки': {
+        label: 'Брюки', icon: '👖',
+        pieces: ['Переднее полотнище (×2)', 'Заднее полотнище (×2)', 'Пояс', 'Карманы'],
+        ease: { waist: '+2 см', hips: '+4–6 см' },
+        notes: 'Шаговый шов передней детали короче задней на 2–3 см. Сидение (расстояние от талии до сидения) = (Обхват бедра / 4) + 3 см.',
+        mistakes: ['Неверный расчёт сидения', 'Нет заднего подъёма', 'Шаговые швы разной длины'],
+        fabric: { min: 150, typical: '150–200 см' }
+    },
+    'блузка': {
+        label: 'Блузка / Рубашка', icon: '👚',
+        pieces: ['Полочка (×2 или ×1 со сгибом)', 'Спинка', 'Рукав (×2)', 'Воротник', 'Манжеты', 'Планка'],
+        ease: { bust: '+6–8 см', waist: '+4–6 см', hips: '+6–8 см' },
+        notes: 'Длина проймы = длина оката рукава ± 1 см. Окат рукава для блузки 3–4 см. Воротник-стойка = длина горловины.',
+        mistakes: ['Длина оката не совпадает с проймой', 'Нет посадки на рукаве', 'Воротник не лежит плоско'],
+        fabric: { min: 200, typical: '200–250 см' }
+    },
+    'пиджак': {
+        label: 'Пиджак / Жакет', icon: '🧥',
+        pieces: ['Полочка (×2)', 'Спинка', 'Рукав двухшовный (×4)', 'Воротник', 'Лацкан', 'Подборт', 'Карманы', 'Прокладка'],
+        ease: { bust: '+8–10 см', waist: '+6–8 см', hips: '+8–10 см' },
+        notes: 'Окат рукава для пиджака 4–5 см. Подборт дублируется флизелином. Длина подборта = длина бортовой линии.',
+        mistakes: ['Маленький окат (рукав морщит)', 'Нет дублирина на полочке', 'Воротник не лежит по линии плеча'],
+        fabric: { min: 250, typical: '300–400 см + подкладка 250 см' }
+    },
+    'пальто': {
+        label: 'Пальто', icon: '🧥',
+        pieces: ['Полочка (×2)', 'Спинка', 'Рукав (×4)', 'Воротник', 'Подборт', 'Карманы', 'Пояс'],
+        ease: { bust: '+10–14 см', waist: '+10–12 см', hips: '+12–16 см' },
+        notes: 'Большие прибавки на свободу облегания. Дублирин на всех деталях переда. Рукав почти всегда двухшовный.',
+        mistakes: ['Маленькие прибавки (не наденется поверх одежды)', 'Нет дублирина', 'Нет шлицы на спинке'],
+        fabric: { min: 300, typical: '350–500 см + подкладка 300 см' }
+    },
+    'топ': {
+        label: 'Топ / Майка', icon: '👕',
+        pieces: ['Полочка', 'Спинка', 'Бретели или рукав-крылышко'],
+        ease: { bust: '+2–4 см', waist: '+0–2 см' },
+        notes: 'Минимальные прибавки. Горловина обрабатывается обтачкой или резинкой. Бретели стандарт — 2.5 см.',
+        mistakes: ['Слишком глубокая пройма', 'Горловина растягивается'],
+        fabric: { min: 80, typical: '80–120 см' }
+    },
+    'сарафан': {
+        label: 'Сарафан', icon: '👗',
+        pieces: ['Полочка', 'Спинка', 'Бретели', 'Пояс (опц.)'],
+        ease: { bust: '+2–4 см', hips: '+4–6 см' },
+        notes: 'Ширина полочки определяет посадку на груди. Лямки регулируются. Низ обрабатывается оверлоком + подгибом.',
+        mistakes: ['Бретели слишком короткие', 'Нет косточек/устойчивости на груди'],
+        fabric: { min: 120, typical: '150–200 см' }
+    }
+};
+
+function findGarmentType(garmentTypeStr) {
+    var gt = (garmentTypeStr || '').toLowerCase();
+    for (var key in garmentLibrary) {
+        if (gt.indexOf(key) > -1) return garmentLibrary[key];
+    }
+    return null;
+}
+
+// ---- Brave Search API ----
+function saveBraveKey() {
+    var key = el('braveApiKey').value.trim();
+    if (key) {
+        localStorage.setItem('patternBraveKey', key);
+        el('braveKeyStatus').textContent = 'Ключ сохранён';
+        el('braveKeyStatus').className = 'api-status ok';
+    }
+}
+function loadBraveKey() {
+    var key = localStorage.getItem('patternBraveKey');
+    if (key) {
+        el('braveApiKey').value = key;
+        el('braveKeyStatus').textContent = 'Ключ загружен';
+        el('braveKeyStatus').className = 'api-status ok';
+        el('braveSection').style.display = 'block';
+    }
+}
+
+function searchBrave(query) {
+    var key = localStorage.getItem('patternBraveKey');
+    if (!key) return Promise.resolve([]);
+    var url = 'https://api.search.brave.com/res/v1/web/search?q=' + encodeURIComponent(query) + '&count=5&search_lang=ru';
+    return fetch(url, { headers: { 'X-Subscription-Token': key, 'Accept': 'application/json' } })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject('Brave: HTTP ' + r.status); })
+    .then(function(data) {
+        var results = (data.web && data.web.results) || [];
+        return results.map(function(r) { return { title: r.title, snippet: r.description || '', url: r.url }; });
+    })
+    .catch(function(e) {
+        console.warn('Brave search error:', e);
+        return [];
+    });
+}
+
+// ---- Research state ----
+var researchContext = null;
+var researchRunning = false;
+
+function runResearch() {
+    if (researchRunning || !aiResult) return;
+    researchRunning = true;
+    var gt = aiResult.garmentType || '';
+    var libInfo = findGarmentType(gt);
+
+    // Show loading state
+    el('researchBtn').disabled = true;
+    el('researchBtn').textContent = 'Исследование...';
+    el('researchStatusMsg').textContent = 'Поиск информации о конструкции...';
+    el('researchStatusMsg').style.display = 'block';
+
+    var hasBrave = !!localStorage.getItem('patternBraveKey');
+    var searchQuery = gt + ' выкройка конструкция пошив';
+
+    // Run web search + AI research in parallel
+    var webPromise = hasBrave ? searchBrave(searchQuery) : Promise.resolve([]);
+    var aiPromise = runAiResearch(gt, libInfo);
+
+    Promise.all([webPromise, aiPromise])
+    .then(function(results) {
+        var webResults = results[0], aiResearch = results[1];
+        researchContext = {
+            garmentType: gt,
+            library: libInfo,
+            webResults: webResults,
+            aiKnowledge: aiResearch,
+            timestamp: new Date().toISOString()
+        };
+        localStorage.setItem('patternResearch_' + gt, JSON.stringify(researchContext));
+        el('researchStatusMsg').style.display = 'none';
+        renderValidationTab();
+    })
+    .catch(function(e) {
+        el('researchStatusMsg').textContent = 'Ошибка: ' + e.message;
+    })
+    .finally(function() { researchRunning = false; });
+}
+
+function runAiResearch(garmentType, libInfo) {
+    var cfg = providerCfg[currentProvider];
+    var apiKey = localStorage.getItem(cfg.key);
+    if (!apiKey) return Promise.resolve('');
+    var libStr = libInfo ? '\n\nBUILT-IN LIBRARY DATA:\n' + JSON.stringify(libInfo) : '';
+    var prompt = 'You are a professional pattern-making expert.' + libStr + '\n\n' +
+        'Provide construction knowledge for: ' + garmentType + '\n\n' +
+        'Respond ONLY in JSON:\n' +
+        '{"keyMeasurements":[{"name":"string(RU)","formula":"string","example":"string"}],' +
+        '"constructionOrder":["string(RU)"],' +
+        '"criticalPoints":["string(RU)"],' +
+        '"easeRecommendations":{"bust":"string","waist":"string","hips":"string"},' +
+        '"fabricNotes":"string(RU)"}';
+    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+    return callFn(apiKey, prompt, null, new AbortController().signal)
+    .then(function(text) {
+        var clean = text.replace(/```json\s*/g,'').replace(/```\s*/g,'').trim();
+        var m = clean.match(/\{[\s\S]*\}/);
+        try { return m ? JSON.parse(m[0]) : {}; } catch(e) { return {}; }
+    })
+    .catch(function() { return {}; });
+}
+
+// ---- Render research results ----
+function renderResearchSection() {
+    if (!researchContext) return '';
+    var html = '';
+    var rc = researchContext;
+    var lib = rc.library;
+    var ai = rc.aiKnowledge || {};
+
+    html += '<div class="lib-card">';
+    if (lib) {
+        html += '<h4>' + (lib.icon || '') + ' ' + (lib.label || rc.garmentType) + ' — библиотека</h4>';
+        html += '<div style="margin-bottom:6px"><strong style="font-size:0.8em;color:#888">Типичные детали:</strong> ';
+        lib.pieces.forEach(function(p) { html += '<span class="lib-tag">' + p + '</span>'; });
+        html += '</div>';
+        if (lib.ease) {
+            html += '<div style="font-size:0.8em;color:#888;margin-bottom:4px">Прибавки: ';
+            if (lib.ease.bust) html += 'грудь ' + lib.ease.bust + '  ';
+            if (lib.ease.waist) html += 'талия ' + lib.ease.waist + '  ';
+            if (lib.ease.hips) html += 'бёдра ' + lib.ease.hips;
+            html += '</div>';
+        }
+        if (lib.notes) html += '<div style="font-size:0.82em;color:#ccc;margin:6px 0">' + lib.notes + '</div>';
+        if (lib.mistakes && lib.mistakes.length) {
+            html += '<div style="margin-top:5px"><strong style="font-size:0.78em;color:#888">Типичные ошибки:</strong> ';
+            lib.mistakes.forEach(function(e) { html += '<span class="lib-tag warn">⚠ ' + e + '</span>'; });
+            html += '</div>';
+        }
+    }
+
+    if (ai.criticalPoints && ai.criticalPoints.length) {
+        html += '<div style="margin-top:10px"><strong style="font-size:0.8em;color:#b8ff00">Ключевые точки AI:</strong>';
+        ai.criticalPoints.forEach(function(p) { html += '<div style="font-size:0.82em;color:#bbb;padding:2px 0 2px 10px">• ' + p + '</div>'; });
+        html += '</div>';
+    }
+    if (ai.keyMeasurements && ai.keyMeasurements.length) {
+        html += '<div style="margin-top:8px"><strong style="font-size:0.8em;color:#b8ff00">Расчётные формулы:</strong>';
+        ai.keyMeasurements.forEach(function(km) {
+            html += '<div class="val-correction"><span class="field">' + km.name + ':</span> ' + km.formula;
+            if (km.example) html += ' <span style="color:#888">(' + km.example + ')</span>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    html += '</div>';
+
+    // Web results
+    if (rc.webResults && rc.webResults.length) {
+        html += '<div class="val-section"><h3>Найдено в вебе (' + rc.webResults.length + ')</h3>';
+        rc.webResults.forEach(function(r) {
+            html += '<div class="research-source"><div class="src-title">' + r.title + '</div>';
+            if (r.snippet) html += '<div class="src-text">' + r.snippet + '</div>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    return html;
+}
+
+// ---- Pattern refinement with research ----
+function refineWithResearch() {
+    if (!aiResult || !researchContext) return;
+    el('refineBtn').disabled = true;
+    el('refineBtn').textContent = 'Уточняем...';
+    hideAiError();
+
+    el('aiLoading').classList.add('visible');
+    el('loadingText').textContent = 'Уточнение с исследованием...';
+
+    var cfg = providerCfg[currentProvider];
+    var apiKey = localStorage.getItem(cfg.key);
+    if (!apiKey) { el('aiLoading').classList.remove('visible'); return; }
+
+    var m = getAiMeasurements();
+    var seamReport = el('aiValidationArea').seamstressResult;
+    var refinePrompt = buildRefinePrompt(m, seamReport);
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 120000);
+    var callFn = { gemini: callGemini, deepseek: callDeepSeek, grok: callGrok }[currentProvider];
+
+    callFn(apiKey, refinePrompt, uploadedImageData, controller.signal)
+    .then(function(text) {
+        aiResult = parseAiJSON(text);
+        el('aiValidationArea').seamstressResult = null;
+        researchContext = null;
+        switchAiTab('pieces');
+        renderAiResult();
+    })
+    .catch(function(err) { showAiError(err.message); })
+    .finally(function() {
+        clearTimeout(timeout);
+        el('aiLoading').classList.remove('visible');
+        if (el('refineBtn')) { el('refineBtn').disabled = false; el('refineBtn').textContent = 'Уточнить выкройку'; }
+    });
+}
+
+function buildRefinePrompt(m, seamReport) {
+    var rc = researchContext;
+    var corrections = seamReport ? (seamReport.corrections || []).map(function(c) {
+        return c.piece + ' ' + c.field + ': ' + c.from + '→' + c.to + ' cm (' + (c.reason||'') + ')';
+    }).join('\n') : '';
+
+    return 'You are an expert pattern maker.' + buildLessonContext() + '\n\n' +
+    'PREVIOUS PATTERN HAD THESE ISSUES — FIX THEM:\n' +
+    (seamReport ? 'Seamstress verdict: ' + (seamReport.verdict||'') + '\n' : '') +
+    (corrections ? 'Required corrections:\n' + corrections + '\n' : '') +
+    (rc && rc.library ? '\nGARMENT LIBRARY REFERENCE:\n' + JSON.stringify({ ease: rc.library.ease, notes: rc.library.notes, mistakes: rc.library.mistakes }) + '\n' : '') +
+    (rc && rc.aiKnowledge ? '\nCONSTRUCTION RESEARCH:\n' + JSON.stringify(rc.aiKnowledge) + '\n' : '') +
+    '\nNow generate a CORRECTED, IMPROVED complete sewing pattern.' +
+    (uploadedImageData ? ' Analyze the photo again.' : '') + '\n\n' +
+    'USER MEASUREMENTS (cm):\n' +
+    '- Bust: ' + m.bust + '\n- Waist: ' + m.waist + '\n- Hips: ' + m.hips +
+    '\n- Shoulder: ' + m.shoulder + '\n- Arm length: ' + m.armLength +
+    '\n- Torso: ' + m.torso + '\n- Waist to hip: ' + m.waistToHip +
+    '\n- Length: ' + m.length + '\n- Seam allowance: ' + m.seam + ' cm\n\n' +
+    'Respond with ONLY valid JSON matching the original schema. ALL text in Russian.';
 }
 
 
@@ -1402,6 +1742,7 @@ function showInstructions() {
 /* ==================== INIT ==================== */
 (function init() {
     loadApiKey();
+    loadBraveKey();
     setupUpload();
     switchMode('ai');
     el('godetCount').addEventListener('input', function() { el('godetCountDisplay').textContent = this.value; });
