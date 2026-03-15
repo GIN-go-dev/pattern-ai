@@ -607,7 +607,7 @@ function callGemini(apiKey, prompt, images, signal) {
         if (!r.ok) return r.json().then(function(e) {
             var msg = (e.error && e.error.message) ? e.error.message : 'HTTP ' + r.status;
             if (r.status === 403) msg = 'API-ключ Gemini не имеет доступа. Проверьте на aistudio.google.com';
-            if (r.status === 429) msg = 'Лимит Gemini. Подождите минуту';
+            if (r.status === 429) msg = 'Gemini 429: ' + msg;
             throw new Error(msg);
         });
         return r.json();
